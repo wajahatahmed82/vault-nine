@@ -47,6 +47,9 @@ Live: https://wajahatahmed82.github.io/robot-strike/
 - **`BoxGeometry` UVs are 0..1 per face whatever the box size.** One texture stretched across a 20m wall and squeezed onto a 2m one, which is most of why walls read as repeated identical panels. `scaleBoxUV` in facility.js rewrites UVs in metres; `TILE` holds metres-per-repeat per material.
 - **Openings must sit proud of the wall face, not on its centre line.** Shell walls are 0.3 thick, so a window at the wall's z was buried inside the masonry and invisible.
 - **Brick needs real dimensions.** 4 bricks per 1.35m is 337mm long and 150mm tall; it reads as a toy wall. 215x65mm with a 10mm joint means 4 per 0.9m over 12 courses.
+- **Recoil must move the real aim, in a fixed pattern.** Old recoil was a camera punch that sprang back, with random yaw — aim never moved, nothing to learn or control. `src/recoil.js` gives each weapon a deterministic per-shot kick applied to `player.state` pitch/yaw before `player.step`. Mouse movement against the kick is `absorb()`-ed so recovery never drags the view past where the player put it.
+- **Bullets went straight through closed doors.** Campaign doors were added to the scene but not to `game.blockers`, and raycasts ignore `visible`, so an opened door must also be removed from the list.
+- **`npx esbuild` can hang on npm's update check.** Use `npx --no-install esbuild ...`.
 - **String `.replace()` in build must use function.** `$&` in replacement string means "insert the match", minified JS contains `$&`.
 
 ## Verifying changes
@@ -87,6 +90,14 @@ entry, not per frame -- each candidate costs a real LOS test.
 FLANK: lost contact 1.2-5s -> approach from ~60-110 deg off the last known
 position instead of down the same corridor.
 Kill alerts squad within 20m (soft), a non-lethal hit within 12m.
+
+## Gunfeel
+
+`src/recoil.js` patterns, `src/decals.js` surface-matched impacts (one InstancedMesh per surface, pool 96). Scope sway on the marksman rifle; Shift while scoped holds breath (~4.5s, then a tired penalty). Sprint-to-fire delay per weapon (`sprintToFire` in config). Inspect on I. Empty reload racks the bolt; tactical skips it.
+
+    const g = await import('/tools/gunfeeltest.js'); g.run(__rs)   // 12 checks
+
+`__rs.spawnSoldier(type, x, z, yaw)` places a soldier from tools without importing enemies.js, so tests also run on the single-file build.
 
 ## Input
 

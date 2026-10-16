@@ -110,14 +110,14 @@ export class HUD {
   hit(part, pos, dmg) {
     this.markerT = 0.16;
     this.marker.classList.toggle('head', part === 'head');
-    if (pos) this.float(pos, String(dmg), part === 'head' ? 'head' : '');
+    if (pos && settings.get('damageNumbers')) this.float(pos, String(dmg), part === 'head' ? 'head' : '');
   }
 
   kill(info) {
     this.markerT = 0.28;
     this.marker.classList.add('kill');
     if (info.headshot) this.marker.classList.add('head');
-    if (info.point) this.float(info.point, info.headshot ? 'HEADSHOT' : 'DESTROYED',
+    if (info.point) this.float(info.point, info.headshot ? 'HEADSHOT' : 'ELIMINATED',
       info.headshot ? 'head big' : 'big');
     this.pushFeed(info);
   }
@@ -217,8 +217,9 @@ export class HUD {
 
       // crosshair opens with bloom, closes when aiming
       const s = w.spec;
-      const base = THREE.MathUtils.lerp(s.spreadHip, s.spreadAds, w.ads);
-      const cone = Math.max(base, w.spread * THREE.MathUtils.lerp(1, 0.18, w.ads));
+      // The weapon's real cone, so moving, jumping and sustained fire all open
+      // the crosshair by exactly as much as they open the spread.
+      const cone = w.cone;
       const px = Math.min(150, cone * window.innerHeight * 1.4) + 5;
       this.cross.style.setProperty('--gap', px.toFixed(1) + 'px');
       this.cross.style.opacity = (1 - w.ads * 0.95).toFixed(2);
@@ -428,6 +429,7 @@ export class HUD {
         ${slider('fov', 'Field of View', 60, 105, 1, (v) => Math.round(v) + '&deg;')}
         ${toggle('vsync', 'Frame Limiter')}
         ${toggle('showFps', 'Show FPS')}
+        ${toggle('damageNumbers', 'Damage Numbers')}
 
         <div class="sec">GRAPHICS PRESET</div>
         <div class="opt row-between">

@@ -287,6 +287,9 @@ export class Campaign {
     mesh.position.set(x, yy + 1.15, z);
     mesh.castShadow = true;
     g.scene.add(mesh);
+    // A shut door has to stop bullets too. Raycasts ignore visibility, so an
+    // opened door must also leave this list or it keeps blocking shots.
+    g.blockers.push(mesh);
     const half = w * 0.75;
     const col = axis === 'z'
       ? { minX: x - 0.2, maxX: x + 0.2, minZ: z - half, maxZ: z + half, top: yy + 2.3, bottom: yy }
@@ -303,6 +306,8 @@ export class Campaign {
     if (!d || d.open) return;
     d.open = true;
     d.mesh.visible = false;
+    const bi = this.game.blockers.indexOf(d.mesh);
+    if (bi >= 0) this.game.blockers.splice(bi, 1);
     // Sink the collider out of the world rather than splicing the array, which
     // other systems are iterating.
     d.col.top = -998;
@@ -313,6 +318,7 @@ export class Campaign {
     for (const d of this.doors) {
       d.open = false;
       d.mesh.visible = true;
+      if (!this.game.blockers.includes(d.mesh)) this.game.blockers.push(d.mesh);
       d.col.top = d.shutTop;
       d.col.bottom = d.shutBottom;
     }

@@ -41,6 +41,7 @@ export const CFG = {
   // viewmodel proportions all read from this table, so balancing is one edit.
   weapons: {
     rifle: {
+      sprintToFire: 0.20,
       name: 'VK-7 RIFLE', slot: 1, auto: true,
       rpm: 640, magSize: 30, reserve: 240, damage: 26, headMul: 2.6,
       reloadTime: 2.0, reloadEmpty: 2.5, range: 220, pellets: 1,
@@ -51,6 +52,7 @@ export const CFG = {
       shape: { barrel: 0.30, stock: true, mag: 'long', optic: 'dot', bulk: 1.0 },
     },
     smg: {
+      sprintToFire: 0.14,
       name: 'HORNET SMG', slot: 2, auto: true,
       rpm: 950, magSize: 40, reserve: 320, damage: 17, headMul: 2.2,
       reloadTime: 1.7, reloadEmpty: 2.1, range: 120, pellets: 1,
@@ -61,6 +63,7 @@ export const CFG = {
       shape: { barrel: 0.16, stock: false, mag: 'long', optic: 'dot', bulk: 0.82 },
     },
     shotgun: {
+      sprintToFire: 0.24,
       name: 'BREACHER 12', slot: 3, auto: false,
       rpm: 85, magSize: 6, reserve: 48, damage: 17, headMul: 1.6,
       reloadTime: 2.6, reloadEmpty: 3.0, range: 45, pellets: 9,
@@ -71,6 +74,7 @@ export const CFG = {
       shape: { barrel: 0.34, stock: true, mag: 'tube', optic: 'iron', bulk: 1.12 },
     },
     sniper: {
+      sprintToFire: 0.34,
       name: 'LONGVIEW .50', slot: 4, auto: false,
       rpm: 48, magSize: 5, reserve: 35, damage: 135, headMul: 2.4,
       reloadTime: 2.9, reloadEmpty: 3.4, range: 400, pellets: 1,

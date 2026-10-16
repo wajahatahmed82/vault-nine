@@ -111,6 +111,21 @@ export const sfx = {
     tone({ type: 'square', f0: 2700, f1: 2700, dur: 0.07, vol: 0.13, delay: 0.045 });
   },
   impact() { noise({ dur: 0.09, vol: 0.16, type: 'lowpass', f0: 2200, f1: 400, q: 1 }); },
+  // Ricochet ping off steel: a short bright ring over the noise burst.
+  impactMetal() {
+    noise({ dur: 0.05, vol: 0.12, type: 'highpass', f0: 3000, f1: 1800, q: 2 });
+    tone({ type: 'triangle', f0: 2600 + Math.random() * 900, f1: 1900, dur: 0.09, vol: 0.06 });
+  },
+  impactGlass() {
+    noise({ dur: 0.12, vol: 0.13, type: 'highpass', f0: 5200, f1: 2600, q: 1.5 });
+    tone({ type: 'sine', f0: 3800, f1: 3200, dur: 0.06, vol: 0.05 });
+  },
+  // Kill confirm: distinct from the hit tick, so a kill is obvious without
+  // looking. A headshot adds a higher second note.
+  killConfirm(head) {
+    tone({ type: 'square', f0: 900, f1: 900, dur: 0.05, vol: 0.13 });
+    setTimeout(() => tone({ type: 'square', f0: head ? 1750 : 1350, f1: head ? 1750 : 1350, dur: 0.07, vol: 0.13 }), 55);
+  },
   nearMiss() {
     noise({ dur: 0.10, vol: 0.13, type: 'bandpass', f0: 2600, f1: 900, q: 6 });
   },

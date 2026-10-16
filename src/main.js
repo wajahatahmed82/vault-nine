@@ -174,6 +174,9 @@ requestAnimationFrame(frame);
 
 window.__rs = {
   game, hud, input, renderer, prog, settings, step, THREE, STATE, MODE,
+  // test hook: place a soldier without importing enemies.js, so the tools also
+  // run against the single-file build
+  spawnSoldier: (type, x, z, yaw) => game.campaign._spawn(type, x, z, { yaw: yaw || 0 }),
   get renderScale() { return renderScale; },
   get shadowsOn() { return shadowsOn; },
   setQuality(q) { settings.set('quality', q); applyQuality(); },

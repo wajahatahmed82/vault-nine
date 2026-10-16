@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CFG } from './config.js';
 import { buildScene } from './scene.js';
 import { Campaign } from './campaign.js';
+import { Decals } from './decals.js';
 import { WeaponSystem, VIEW_LAYER } from './weapons.js';
 import { Player } from './player.js';
 import { Robot, pickType, STATE as AI } from './enemies.js';
@@ -40,7 +41,20 @@ export class Game {
     this.onDown = () => {};
     this.difficulty = 'normal';
     this.weapons = new WeaponSystem(this.camera, audio.sfx, built.mats, progression);
+    // Casings land on whatever floor is under them -- y=0 left them hanging in
+    // mid-air above the basement.
+    this.weapons.floorAt = (x, z, hintY) => this.player.groundAt(x, z, (hintY === undefined ? 0 : hintY));
     this.fx = new FX(this.scene, this.camera);
+    this.decals = new Decals(this.scene);
+    // What each world material is made of, for impact marks, dust and sound.
+    const M = built.mats;
+    this.surface = new Map();
+    for (const k of ['brick', 'painted', 'plaster', 'concreteFloor', 'asphalt', 'ceilingTile'])
+      if (M[k]) this.surface.set(M[k], 'masonry');
+    for (const k of ['steel', 'panel', 'paintMetal', 'rust', 'gunMetal'])
+      if (M[k]) this.surface.set(M[k], 'metal');
+    if (M.crate) this.surface.set(M.crate, 'wood');
+    if (M.glass) this.surface.set(M.glass, 'glass');
 
     this.ray = new THREE.Raycaster();
     this.losRay = new THREE.Raycaster();
@@ -96,6 +110,7 @@ export class Game {
     for (const r of this.robots) this.scene.remove(r.root);
     this.robots.length = 0;
     this.fx.clear();
+    if (this.decals) this.decals.clear();
     this.player.reset();
     this.weapons.resetAll();
 
@@ -275,6 +290,13 @@ export class Game {
     for (const r of this.robots) if (!r.dead) targets.push(...r.hitboxes);
 
     const range = this.weapons.spec.range;
+    const W = this.weapons;
+    // Tracers on every third round of an automatic, every shot otherwise --
+    // readable without turning a spray into a laser show.
+    const tracerShot = !W.spec.auto || W.shotsFired % 3 === 1;
+    let pelletTracers = 0;
+    // a thin wisp off the muzzle
+    if (W.shotsFired % (W.spec.auto ? 2 : 1) === 0) this.fx.puff(muzzle, 0.10, 0xb9b2a6);
     let anyHit = false, anyKill = false, anyHead = false;
     let hitPoint = null, dealt = 0;
 
@@ -282,12 +304,13 @@ export class Game {
       this.ray.set(origin, dir);
       this.ray.far = range;
       const hits = this.ray.intersectObjects(targets, false);
+      const drawTracer = tracerShot && (W.spec.pellets === 1 || pelletTracers++ < 2);
       if (!hits.length) {
-        this.fx.tracer(muzzle, origin.clone().addScaledVector(dir, range));
+        if (drawTracer) this.fx.tracer(muzzle, origin.clone().addScaledVector(dir, range));
         continue;
       }
       const hit = hits[0];
-      this.fx.tracer(muzzle, hit.point);
+      if (drawTracer) this.fx.tracer(muzzle, hit.point);
       const ud = hit.object.userData;
 
       if (ud && ud.robot) {
@@ -315,9 +338,25 @@ export class Game {
         }
       } else {
         const n = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0);
-        this.fx.puff(hit.point, 0.42, 0xbfc6cf);
-        this.fx.sparkBurst(hit.point, n, 4);
-        audio.sfx.impact();
+        // Merged statics have identity transforms, but doors and props may not.
+        n.transformDirection(hit.object.matrixWorld);
+        const kind = this.surface.get(hit.object.material) || 'masonry';
+        this.decals.add(hit.point, n, kind);
+        if (kind === 'metal') {
+          this.fx.sparkBurst(hit.point, n, 7);
+          this.fx.puff(hit.point, 0.18, 0x9a958c);
+          audio.sfx.impactMetal();
+        } else if (kind === 'wood') {
+          this.fx.puff(hit.point, 0.30, 0x8a6a46);
+          audio.sfx.impact();
+        } else if (kind === 'glass') {
+          this.fx.sparkBurst(hit.point, n, 3);
+          audio.sfx.impactGlass();
+        } else {
+          this.fx.puff(hit.point, 0.42, 0xb3aa98);
+          this.fx.sparkBurst(hit.point, n, 2);
+          audio.sfx.impact();
+        }
       }
     }
 
@@ -353,6 +392,7 @@ export class Game {
 
     this.fx.explode(point, 0xc9bda6);
     audio.sfx.robotDeath();
+    audio.sfx.killConfirm(headshot);
     this.onKill({ headshot, point, type: robot.type, name: robot.spec.name, mult: this.multiplier });
   }
 
@@ -452,21 +492,46 @@ export class Game {
       this.weapons.startReload();
     }
 
+    if (inp.inspect) this.weapons.inspect();
+
+    // ---- pattern recoil moves the real aim ----
+    // Kick from last frame's shots, plus recovery once the spray has stopped.
+    // Applied before the player steps, so this frame's camera already includes
+    // it and the next bullet leaves along the kicked line.
+    const ps = this.player.state;
+    const [kp, ky] = this.weapons.consumeKick();
+    const [rp, ry] = this.weapons.recover(dt);
+    ps.pitch = THREE.MathUtils.clamp(ps.pitch + kp + rp, CFG.camera.pitchMin, CFG.camera.pitchMax);
+    ps.yaw += -ky + ry;
+    const prePitch = ps.pitch, preYaw = ps.yaw;
+
     // ---- player, before anything traces a ray through the camera ----
     this.player.step(dt, {
       moveX: inp.moveX, moveY: inp.moveY,
       lookDX: inp.dx, lookDY: inp.dy,
       jump: inp.jump, crouch: inp.crouch, sprint: inp.sprint,
     }, this.weapons.ads);
+
+    // Whatever the mouse did this frame counts against the recoil the player
+    // is carrying, so pulling down pays it off instead of fighting recovery.
+    let dYaw = ps.yaw - preYaw;
+    if (dYaw > Math.PI) dYaw -= Math.PI * 2;
+    if (dYaw < -Math.PI) dYaw += Math.PI * 2;
+    this.weapons.absorb(ps.pitch - prePitch, dYaw);
     if (inp.jump && this.player.state.grounded === false) audio.sfx.jump();
 
     // recoil rides on top of the player's own aim
-    this.camera.rotation.y += this.weapons.camPunchYaw + this.fx.shake.x;
+    this.camera.rotation.y += this.weapons.camPunchYaw + this.fx.shake.x + this.weapons.scopeSwayY;
     this.camera.rotation.x = THREE.MathUtils.clamp(
-      this.camera.rotation.x + this.weapons.camPunch + this.fx.shake.y,
+      this.camera.rotation.x + this.weapons.camPunch + this.fx.shake.y + this.weapons.scopeSwayP,
       CFG.camera.pitchMin - 0.3, CFG.camera.pitchMax + 0.3);
 
-    this.weapons.setMotion(this.player.moveAmount, inp.dx * 0.05, inp.dy * 0.05);
+    this.weapons.setMotion(this.player.moveAmount, inp.dx * 0.05, inp.dy * 0.05, {
+      sprinting: ps.sprinting,
+      airborne: !ps.grounded,
+      // Shift while scoped holds breath; sprint is already blocked while aiming.
+      holdBreath: inp.sprint && this.weapons.ads > 0.6,
+    });
     this._fov(dt);
 
     // ---- robots ----

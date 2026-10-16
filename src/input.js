@@ -52,7 +52,7 @@ export class Input {
     for (const a of HELD_ACTIONS) this.held[a] = false;
 
     // --- one-shot edge queue ---
-    this.queue = { jump: 0, reload: 0, pause: 0, switchTo: null };
+    this.queue = { jump: 0, reload: 0, pause: 0, inspect: 0, switchTo: null };
 
     // --- look / stick ---
     this.dx = 0; this.dy = 0;
@@ -114,6 +114,7 @@ export class Input {
       if (wasDown || e.repeat) return;
       if (e.code === 'Space') this.queue.jump++;
       if (e.code === 'KeyR') this.queue.reload++;
+      if (e.code === 'KeyI') this.queue.inspect++;
       if (e.code === 'Digit1') this.queue.switchTo = 'rifle';
       if (e.code === 'Digit2') this.queue.switchTo = 'smg';
       if (e.code === 'Digit3') this.queue.switchTo = 'shotgun';
@@ -310,6 +311,7 @@ export class Input {
       interact: this.held.interact,
       jump: this.queue.jump > 0,
       reload: this.queue.reload > 0,
+      inspect: this.queue.inspect > 0,
       switchTo: this.queue.switchTo,
       pause: this.queue.pause > 0,
     };
@@ -318,6 +320,7 @@ export class Input {
     this.queue.jump = 0;
     this.queue.reload = 0;
     this.queue.pause = 0;
+    this.queue.inspect = 0;
     this.queue.switchTo = null;
     return r;
   }

@@ -17,6 +17,7 @@ export const DEFAULTS = {
   crosshairSize: 1.0,
   crosshairColour: '#7fe9c4',
   showFps: true,
+  damageNumbers: false,     // floating damage figures on hit
   invertY: false,
 };
 
