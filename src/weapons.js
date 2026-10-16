@@ -151,7 +151,9 @@ export class WeaponSystem {
     this.flash.visible = false;
     this.recoilGroup.add(this.flash);
 
-    this.flashLight = new THREE.PointLight(0xffbb66, 0, 10, 2);
+    // Short range and a low cap: at range 10 / intensity 8, automatic fire
+    // strobed the whole room. (Change carried over from the published artifact.)
+    this.flashLight = new THREE.PointLight(0xffbb66, 0, 6, 2);
     this.recoilGroup.add(this.flashLight);
   }
 
@@ -343,11 +345,12 @@ export class WeaponSystem {
     this.flash.position.copy(m.muzzle.position).multiplyScalar(0.80);
     this.flashLight.position.copy(this.flash.position);
     this.flash.visible = true;
-    this.flashMat.opacity = 0.95;
+    this.flashMat.opacity = 0.7;
     this.flash.rotation.z = Math.random() * Math.PI;
     const fs = (0.8 + Math.random() * 0.55) * (s.pellets > 1 ? 1.5 : 1);
     this.flash.scale.set(fs, fs, fs);
-    this.flashLight.intensity = 8;
+    // accumulate toward a cap rather than slamming to full every round
+    this.flashLight.intensity = Math.min(2.2, this.flashLight.intensity + 1.5);
 
     this._ejectShell(scene);
     this.audio?.shot(this.current);
@@ -498,12 +501,15 @@ export class WeaponSystem {
 
     if (this.flash.visible) {
       this.flashMat.opacity -= dt * 22;
-      this.flashLight.intensity -= dt * 170;
       if (this.flashMat.opacity <= 0) {
         this.flash.visible = false;
         this.flashMat.opacity = 0;
-        this.flashLight.intensity = 0;
       }
+    }
+    // The light fades on its own curve, so a burst glows instead of flickering.
+    if (this.flashLight.intensity > 0) {
+      this.flashLight.intensity *= Math.exp(-dt * 12);
+      if (this.flashLight.intensity < 0.03) this.flashLight.intensity = 0;
     }
 
     for (let i = this.shells.length - 1; i >= 0; i--) {
