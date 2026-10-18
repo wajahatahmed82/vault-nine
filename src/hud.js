@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { TOUCH_ONLY } from './input.js';
 import { CFG } from './config.js';
 import { STATE, MODE } from './game.js';
 import { UPGRADES, MAX_RANK } from './progression.js';
@@ -12,6 +13,27 @@ const clock = (s) => {
   const r = Math.floor(Math.max(0, s) % 60);
   return m + ':' + (r < 10 ? '0' : '') + r;
 };
+
+// Phones: fill the screen and hold landscape. Both need a user gesture, and
+// both are optional -- if the browser refuses, the game still runs.
+function goFullscreen() {
+  if (!TOUCH_ONLY) return;
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!req || document.fullscreenElement) return;
+  try {
+    const p = req.call(el, { navigationUI: 'hide' });
+    const lock = () => { try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {}); } catch (_) {} };
+    if (p && p.then) p.then(lock).catch(() => {}); else lock();
+  } catch (_) { /* not available: carry on windowed */ }
+}
+
+// "Take security keycard" -> "TAKE". A thumb-sized button needs a verb, not
+// a sentence; the full prompt is still shown above it.
+function shortVerb(text) {
+  const w = String(text).trim().split(/\s+/)[0] || 'USE';
+  return w.length > 8 ? 'USE' : w.toUpperCase();
+}
 
 export class HUD {
   constructor(game, input, prog) {
@@ -46,6 +68,11 @@ export class HUD {
     this.logLines = $('log-lines');
     this.logT = 0;
     this._promptShown = null;
+    this.logBox.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      this.logT = 0;
+      this.logBox.classList.add('hidden');
+    });
 
     game.onPrompt = (text, locked) => this.setPrompt(text, locked);
     game.onDown = () => this.banner('CHECKPOINT RELOADED');
@@ -63,6 +90,13 @@ export class HUD {
     input.bindTap($('btn-jump'), () => { this.input.jumpQueued = true; });
     input.bindTap($('btn-swap'), () => { this.input.switchQueued = 'next'; });
     input.bindTap($('btn-pause'), () => this.game.pause());
+    // Phone controls for everything the campaign needs.
+    // A tap, not a hold: queued so it cannot fall between two frames.
+    input.bindTap($('btn-interact'), () => { this.input.queue.interact++; });
+    input.bindHold($('btn-breath'), 'sprint');      // sprint while scoped = hold breath
+    input.bindTap($('btn-inspect'), () => { this.input.queue.inspect++; });
+    this.useBtn = $('btn-interact');
+    this.breathBtn = $('btn-breath');
 
     game.onHit = (part, pos, dmg) => this.hit(part, pos, dmg);
     game.onKill = (info) => this.kill(info);
@@ -178,6 +212,10 @@ export class HUD {
   // ---------------- per-frame ----------------
 
   update(dt) {
+    if (this.breathBtn) {
+      const w = this.game.weapons;
+      this.breathBtn.classList.toggle('show', w.current === 'sniper' && w.ads > 0.6);
+    }
     // story log auto-dismiss
     if (this.logT > 0) {
       this.logT -= dt;
@@ -202,7 +240,10 @@ export class HUD {
       $('hp').classList.toggle('critical', hp <= 30);
       $('ar-fill').style.width = Math.max(0, g.armor) + '%';
 
-      if (g.mode === MODE.TIME) {
+      this.combat.classList.toggle('campaign', g.mode === MODE.CAMPAIGN);
+      if (g.mode === MODE.CAMPAIGN) {
+        // nothing: the objective panel carries the campaign
+      } else if (g.mode === MODE.TIME) {
         $('obj-label').textContent = 'TIME LEFT';
         $('obj-value').textContent = clock(g.timeLeft);
         $('obj').classList.toggle('urgent', g.timeLeft < 30);
@@ -311,7 +352,7 @@ export class HUD {
     const next = p.nextUnlock();
     return this.el(`
       <div class="panel wide fade">
-        <div class="brand"><span>ROBOT</span><b>STRIKE</b></div>
+        <div class="brand"><span>VAULT</span><b>NINE</b></div>
         <div class="tagline">Meridian Ridge Research Station &middot; something happened here</div>
 
         <div class="lvlbar">
@@ -485,7 +526,7 @@ export class HUD {
     const isBest = g.score >= best && g.score > 0;
     return this.el(`
       <div class="panel wide fade">
-        <div class="dead">${g.mode === MODE.TIME ? 'TIME UP' : 'SYSTEMS DOWN'}</div>
+        <div class="dead">${g.mode === MODE.TIME ? 'TIME UP' : 'KILLED IN ACTION'}</div>
         <div class="bigscore">${fmt(g.score)}</div>
         ${isBest ? '<div class="best">NEW PERSONAL BEST</div>' : `<div class="sub">BEST ${fmt(best)}</div>`}
         <div class="grid4">
@@ -514,8 +555,16 @@ export class HUD {
   }
 
   setPrompt(text, locked) {
-    if (text === this._promptShown) return;
+    if (text === this._promptShown && !!locked === !!this._promptLocked) return;
     this._promptShown = text;
+    this._promptLocked = !!locked;
+    // The USE button mirrors the prompt: present only when something is in
+    // reach, labelled with the action, red when it needs a keycard.
+    if (this.useBtn) {
+      this.useBtn.classList.toggle('show', !!text);
+      this.useBtn.classList.toggle('locked', !!locked);
+      if (text) this.useBtn.textContent = locked ? 'LOCKED' : shortVerb(text);
+    }
     if (!text) { this.promptBox.classList.add('hidden'); return; }
     this.promptText.textContent = text;
     this.promptBox.classList.toggle('locked', !!locked);
@@ -545,14 +594,15 @@ export class HUD {
         audio.sfx[a === 'back' || a === 'quit' ? 'uiBack' : 'ui']();
         switch (a) {
           case 'play-campaign':
+            goFullscreen();
             this.panel = 'main';
             g.difficulty = this.difficulty || 'normal';
             g.start(MODE.CAMPAIGN); audio.startAmbience(); break;
           case 'diff-easy': this.difficulty = 'easy'; this.go('main'); break;
           case 'diff-normal': this.difficulty = 'normal'; this.go('main'); break;
           case 'diff-hard': this.difficulty = 'hard'; this.go('main'); break;
-          case 'play-survival': this.panel = 'main'; g.start(MODE.SURVIVAL); audio.startAmbience(); break;
-          case 'play-time': this.panel = 'main'; g.start(MODE.TIME); audio.startAmbience(); break;
+          case 'play-survival': goFullscreen(); this.panel = 'main'; g.start(MODE.SURVIVAL); audio.startAmbience(); break;
+          case 'play-time': goFullscreen(); this.panel = 'main'; g.start(MODE.TIME); audio.startAmbience(); break;
           case 'loadout': this.go('loadout'); break;
           case 'loadout-over': this.go('loadout'); break;
           case 'settings': this.go('settings'); break;

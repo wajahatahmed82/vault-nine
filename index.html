@@ -6,9 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="ROBOT STRIKE">
+<meta name="apple-mobile-web-app-title" content="VAULT NINE">
 <meta name="theme-color" content="#0b1017">
-<title>ROBOT STRIKE</title>
+<title>VAULT NINE</title>
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">
 { "imports": { "three": "./node_modules/three/build/three.module.js",
@@ -17,6 +17,7 @@
 </head>
 <body>
   <canvas id="view"></canvas>
+  <div id="rotate"><b>&#8635;</b><span>Turn your phone sideways to play</span></div>
 
   <div id="combat" class="hidden">
     <div id="vignette"></div>
@@ -71,6 +72,11 @@
 
     <div id="controls">
       <div id="btn-pause" class="pad tiny">II</div>
+      <!-- Contextual: appears only when there is something to use, labelled
+           with what it does, so a phone player is never stuck at a keycard. -->
+      <div id="btn-interact" class="pad ctx">USE</div>
+      <div id="btn-breath" class="pad ctx small">BREATH</div>
+      <div id="btn-inspect" class="pad tiny inspect">&#8635;</div>
       <div id="btn-swap" class="pad small">SWAP</div>
       <div id="btn-crouch" class="pad small">CRCH</div>
       <div id="btn-jump" class="pad small">JUMP</div>

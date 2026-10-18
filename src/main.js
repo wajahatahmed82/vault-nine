@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Game, STATE, MODE } from './game.js';
-import { Input } from './input.js';
+import { Input, TOUCH_ONLY } from './input.js';
 import { HUD } from './hud.js';
 import { Progression } from './progression.js';
 import * as audio from './audio.js';
@@ -80,8 +80,16 @@ function applySize() {
 function applyQuality() {
   const q = settings.get('quality');
   if (q === 'auto') {
-    renderScale = Math.min(DPR_CAP, 1.2);
-    setShadows(true, 1024);
+    // Phones start lean and earn quality back: a 3x-density screen at 1.2x
+    // with shadows is a slideshow on most mobile GPUs. Desktop starts high.
+    if (TOUCH_ONLY) {
+      renderScale = Math.min(DPR_CAP, 0.9);
+      setShadows(false, 512);
+      game.fx.setBudget('low');
+    } else {
+      renderScale = Math.min(DPR_CAP, 1.2);
+      setShadows(true, 1024);
+    }
   } else {
     renderScale = settings.get('renderScale');
     const sq = settings.get('shadowQuality');
@@ -114,8 +122,9 @@ function autoTune(dt, frameMs) {
     if (shadowsOn) setShadows(false, 512);
     else if (renderScale > 0.6) { renderScale = Math.max(0.6, renderScale - 0.12); applySize(); }
   } else if (frameAvg < 12.5) {
-    if (renderScale < Math.min(DPR_CAP, 1.4)) {
-      renderScale = Math.min(Math.min(DPR_CAP, 1.4), renderScale + 0.08);
+    const cap = TOUCH_ONLY ? 1.0 : Math.min(DPR_CAP, 1.4);
+    if (renderScale < cap) {
+      renderScale = Math.min(cap, renderScale + 0.08);
       applySize();
     } else if (!shadowsOn) setShadows(true, 1024);
   }
@@ -167,7 +176,10 @@ function frame(now) {
 
   game.render();
   const cost = performance.now() - t0;
-  autoTune(dt, cost);
+  // Tune on real frame time, not CPU time. Phones are usually GPU-bound, and
+  // `cost` only measures how long it took to submit the frame, so on a slow
+  // phone it stayed low and auto-quality never reacted.
+  autoTune(dt, Math.max(cost, dt * 1000));
   hud.setFps(1 / Math.max(dt, 0.0001), renderScale);
 }
 requestAnimationFrame(frame);

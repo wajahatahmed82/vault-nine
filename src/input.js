@@ -18,6 +18,8 @@
 // stayed latched on forever.
 
 const STICK_RADIUS = 62;
+export const TOUCH_ONLY = typeof matchMedia === 'function' &&
+  matchMedia('(pointer: coarse)').matches && !matchMedia('(hover: hover) and (pointer: fine)').matches;
 const STICK_DEAD = 5;
 
 // action -> list of KeyboardEvent.code that drive it
@@ -52,7 +54,9 @@ export class Input {
     for (const a of HELD_ACTIONS) this.held[a] = false;
 
     // --- one-shot edge queue ---
-    this.queue = { jump: 0, reload: 0, pause: 0, inspect: 0, switchTo: null };
+    // `interact` is queued as well as held: a tap shorter than one frame
+    // presses and releases between samples, and a held-only flag never sees it.
+    this.queue = { jump: 0, reload: 0, pause: 0, inspect: 0, interact: 0, switchTo: null };
 
     // --- look / stick ---
     this.dx = 0; this.dy = 0;
@@ -91,6 +95,8 @@ export class Input {
   requestLock() {
     const c = this.canvas;
     if (this.pointerLocked || !this.wantPointerLock || !c.requestPointerLock) return;
+    // A phone has no cursor to capture; locking would swallow the touch look.
+    if (TOUCH_ONLY) return;
     try {
       const p = c.requestPointerLock();
       if (p && p.catch) p.catch(() => {});
@@ -115,6 +121,7 @@ export class Input {
       if (e.code === 'Space') this.queue.jump++;
       if (e.code === 'KeyR') this.queue.reload++;
       if (e.code === 'KeyI') this.queue.inspect++;
+      if (e.code === 'KeyE') this.queue.interact++;
       if (e.code === 'Digit1') this.queue.switchTo = 'rifle';
       if (e.code === 'Digit2') this.queue.switchTo = 'smg';
       if (e.code === 'Digit3') this.queue.switchTo = 'shotgun';
@@ -308,7 +315,7 @@ export class Input {
       ads: this.held.aim,
       sprint,
       crouch: this.held.crouch,
-      interact: this.held.interact,
+      interact: this.held.interact || this.queue.interact > 0,
       jump: this.queue.jump > 0,
       reload: this.queue.reload > 0,
       inspect: this.queue.inspect > 0,
@@ -321,6 +328,7 @@ export class Input {
     this.queue.reload = 0;
     this.queue.pause = 0;
     this.queue.inspect = 0;
+    this.queue.interact = 0;
     this.queue.switchTo = null;
     return r;
   }

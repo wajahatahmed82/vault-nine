@@ -18,13 +18,13 @@ html = html.replace(/<link rel="stylesheet" href="css\/style\.css">/, () => `<st
 html = html.replace(/<script type="importmap">[\s\S]*?<\/script>\s*/, () => '');
 html = html.replace(/<script type="module" src="src\/main\.js"><\/script>/, () => `<script>${js}</script>`);
 
-const desc = 'Hold an abandoned robotics facility against waves of hostile machines. Four weapons, four robot chassis, real AI.';
-html = html.replace(/<title>ROBOT STRIKE<\/title>/, () =>
+const desc = 'A story-driven tactical shooter. Investigate a silent research station, uncover what was buried in Vault Nine, and get out alive.';
+html = html.replace(/<title>VAULT NINE<\/title>/, () =>
   `<meta name="description" content="${desc}">
-<meta property="og:title" content="ROBOT STRIKE">
+<meta property="og:title" content="VAULT NINE">
 <meta property="og:description" content="${desc}">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230b1017'/%3E%3Crect x='28' y='30' width='44' height='34' rx='5' fill='none' stroke='%237fe9c4' stroke-width='7'/%3E%3Crect x='40' y='43' width='20' height='8' fill='%237fe9c4'/%3E%3Cpath d='M50 12v16M22 74l-8 12M78 74l8 12' stroke='%237fe9c4' stroke-width='7' stroke-linecap='round'/%3E%3C/svg%3E">
-<title>ROBOT STRIKE</title>`);
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Crect%20width='100'%20height='100'%20rx='18'%20fill='%230b1017'/%3E%3Cg%20fill='none'%20stroke='%237fe9c4'%20stroke-linecap='round'%3E%3Ccircle%20cx='50'%20cy='50'%20r='38'%20stroke-width='6'/%3E%3Cg%20stroke-width='5'%3E%3Cline%20x1='50'%20y1='50'%20x2='50.0'%20y2='20.0'/%3E%3Cline%20x1='50'%20y1='50'%20x2='69.3'%20y2='27.0'/%3E%3Cline%20x1='50'%20y1='50'%20x2='79.5'%20y2='44.8'/%3E%3Cline%20x1='50'%20y1='50'%20x2='76.0'%20y2='65.0'/%3E%3Cline%20x1='50'%20y1='50'%20x2='60.3'%20y2='78.2'/%3E%3Cline%20x1='50'%20y1='50'%20x2='39.7'%20y2='78.2'/%3E%3Cline%20x1='50'%20y1='50'%20x2='24.0'%20y2='65.0'/%3E%3Cline%20x1='50'%20y1='50'%20x2='20.5'%20y2='44.8'/%3E%3Cline%20x1='50'%20y1='50'%20x2='30.7'%20y2='27.0'/%3E%3C/g%3E%3Ccircle%20cx='50'%20cy='50'%20r='9'%20stroke-width='6'%20fill='%230b1017'/%3E%3C/g%3E%3C/svg%3E">
+<title>VAULT NINE</title>`);
 
 for (const bad of ['importmap', 'src/main.js', 'css/style.css']) {
   if (html.includes(bad)) throw new Error('build left a dev reference behind: ' + bad);

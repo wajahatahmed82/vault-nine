@@ -25,7 +25,7 @@ let markup = body[1]
   .replace(/<script type="module" src="src\/main\.js"><\/script>/i, '')
   .trim();
 
-const out = `<title>Robot Strike</title>
+const out = `<title>Vault Nine</title>
 <style>
 /* The game paints its own ground; the artifact host must not show through. */
 html, body { height: 100%; margin: 0; background: #0b1017; overflow: hidden; }

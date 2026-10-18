@@ -16,7 +16,7 @@ export const DEFAULTS = {
   vsync: true,            // when off, the frame limiter is removed
   crosshairSize: 1.0,
   crosshairColour: '#7fe9c4',
-  showFps: true,
+  showFps: false,
   damageNumbers: false,     // floating damage figures on hit
   invertY: false,
 };
