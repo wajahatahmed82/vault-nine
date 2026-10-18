@@ -1,0 +1,11 @@
+{
+  "appId": "com.wajahatahmed.vaultnine",
+  "appName": "Vault Nine",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#0b1017",
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  }
+}

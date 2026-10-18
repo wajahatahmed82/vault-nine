@@ -1,0 +1,97 @@
+name: Android build
+
+# Builds the Android app from the same single-file game that GitHub Pages
+# serves, so the phone build can never drift from the web build.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'android/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # true only once the upload-key secrets exist (see store/PLAY_STORE.md)
+      HAS_UPLOAD_KEY: ${{ secrets.VN_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Android SDK platform 36
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null
+          "$SDKM" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - name: Install Capacitor
+        run: npm ci
+
+      - name: Copy the game into the app
+        run: |
+          mkdir -p www
+          cp docs/index.html www/index.html
+          npx cap sync android
+
+      - name: Build test APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vault-nine-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish test APK to the android-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk vault-nine-test.apk
+          if ! gh release view android-latest > /dev/null 2>&1; then
+            gh release create android-latest --prerelease \
+              --title "Vault Nine - latest Android test build" \
+              --notes "Test build for installing directly on an Android phone. Not the Play Store build. Rebuilt automatically on every change."
+          fi
+          gh release upload android-latest vault-nine-test.apk --clobber
+
+      # Play Store bundle. Skipped until the owner adds their own upload key as
+      # repository secrets; the key never lives in this repository.
+      - name: Signed Play Store bundle
+        if: env.HAS_UPLOAD_KEY == 'true'
+        working-directory: android
+        env:
+          VN_KEYSTORE_BASE64: ${{ secrets.VN_KEYSTORE_BASE64 }}
+          VN_KEYSTORE_PASSWORD: ${{ secrets.VN_KEYSTORE_PASSWORD }}
+          VN_KEY_ALIAS: ${{ secrets.VN_KEY_ALIAS }}
+          VN_KEY_PASSWORD: ${{ secrets.VN_KEY_PASSWORD }}
+        run: |
+          echo "$VN_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          export VN_KEYSTORE_PATH="$RUNNER_TEMP/upload.jks"
+          ./gradlew bundleRelease --no-daemon --stacktrace
+          rm -f "$RUNNER_TEMP/upload.jks"
+
+      - uses: actions/upload-artifact@v4
+        if: env.HAS_UPLOAD_KEY == 'true'
+        with:
+          name: vault-nine-play-bundle
+          path: android/app/build/outputs/bundle/release/app-release.aab

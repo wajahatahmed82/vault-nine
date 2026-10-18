@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vault Nine</string>
+    <string name="title_activity_main">Vault Nine</string>
+    <string name="package_name">com.wajahatahmed.vaultnine</string>
+    <string name="custom_url_scheme">com.wajahatahmed.vaultnine</string>
+</resources>

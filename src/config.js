@@ -1,4 +1,4 @@
-// ROBOT STRIKE - all tuning in one place.
+// VAULT NINE - all tuning in one place.
 
 export const CFG = {
   camera: {
