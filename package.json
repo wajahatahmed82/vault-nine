@@ -1,7 +1,7 @@
 {
-  "name": "robot-strike",
+  "name": "vault-nine",
   "version": "1.0.0",
-  "description": "",
+  "description": "VAULT NINE - a story-driven tactical shooter",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

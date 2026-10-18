@@ -1,8 +1,8 @@
-# ROBOT STRIKE — working notes
+# VAULT NINE — working notes
 
-Wave-defence FPS, browser. Three.js, all procedural (geometry, textures, audio) — no asset files, nothing licensed.
+Story-driven FPS, browser + Android. Three.js, all procedural (geometry, textures, audio) — no asset files, nothing licensed. Formerly ROBOT STRIKE; local folder and localStorage keys (`robotstrike.*`) keep the old name on purpose — renaming the keys would wipe every player's saves.
 
-Live: https://wajahatahmed82.github.io/robot-strike/
+Live: https://wajahatahmed82.github.io/vault-nine/  (repo `wajahatahmed82/vault-nine`; old `robot-strike` Pages URL redirects)
 
 ## Run and build
 
@@ -50,6 +50,13 @@ Live: https://wajahatahmed82.github.io/robot-strike/
 - **Recoil must move the real aim, in a fixed pattern.** Old recoil was a camera punch that sprang back, with random yaw — aim never moved, nothing to learn or control. `src/recoil.js` gives each weapon a deterministic per-shot kick applied to `player.state` pitch/yaw before `player.step`. Mouse movement against the kick is `absorb()`-ed so recovery never drags the view past where the player put it.
 - **Bullets went straight through closed doors.** Campaign doors were added to the scene but not to `game.blockers`, and raycasts ignore `visible`, so an opened door must also be removed from the list.
 - **`npx esbuild` can hang on npm's update check.** Use `npx --no-install esbuild ...`.
+- **A touch button that represents a press must be queued, not just held.** The first USE button used `bindHold`; a quick tap presses and releases between two frames, so `take()` never saw it. Interact now also goes through `queue.interact`. Same for desktop E on very fast presses.
+- **Auto-quality must tune on real frame time.** It used `cost` (CPU submit time). Phones are GPU-bound, so `cost` stayed low and quality never dropped. `main.js` now feeds `max(cost, dt*1000)`.
+- **Never request pointer lock on touch-only devices** (`TOUCH_ONLY` in input.js) — it swallows touch look.
+- **Campaign parks the wave timer at 1e9**, so any HUD cell reading it shows "NEXT WAVE 1000000000s". `#combat.campaign` hides those cells.
+- **HUD text never appears in canvas captures** — screenshots via the canvas miss every DOM overlay. Use the pane's real screenshot (needs the pane displayed) to see HUD bugs.
+- **PowerShell can report success after an exception.** A `&&` chain carried on and deleted a source file after a failed image conversion. Check the output file exists and is non-empty before deleting the input.
+- **Play rejects feature graphics with an alpha channel.** Canvas PNGs are 32-bit; export the feature graphic as JPEG.
 - **String `.replace()` in build must use function.** `$&` in replacement string means "insert the match", minified JS contains `$&`.
 
 ## Verifying changes
@@ -98,6 +105,12 @@ Kill alerts squad within 20m (soft), a non-lethal hit within 12m.
     const g = await import('/tools/gunfeeltest.js'); g.run(__rs)   // 12 checks
 
 `__rs.spawnSoldier(type, x, z, yaw)` places a soldier from tools without importing enemies.js, so tests also run on the single-file build.
+
+## Mobile and Android
+
+Touch: contextual USE (`#btn-interact`, label = first word of the prompt, red LOCKED when keycard too low), BREATH when scoped, inspect, turn-sideways card in portrait, fullscreen + landscape lock from the start tap. `tools/mobiletest.js` (11 checks) includes a press-and-release with no frame between.
+
+Android: Capacitor 8 (`capacitor.config.json`, `android/`), app id `com.wajahatahmed.vaultnine`. `.github/workflows/android.yml` copies `docs/index.html` into `www/`, `cap sync`, builds a debug APK and publishes it to release `android-latest`. Signed AAB only when the owner's `VN_KEYSTORE_*` secrets exist; `app/build.gradle` reads them from env. Bump `versionCode` before every Play upload. Store listing/graphics/guides in `store/`.
 
 ## Input
 

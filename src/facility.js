@@ -319,8 +319,24 @@ export function buildFacility(scene, mats, PAL) {
   // Stair shaft. The west and south walls run full height because there is no
   // floor beyond them at basement level. The east side is only a ground-floor
   // railing, so the bottom of the stairs opens into the basement.
-  wall(-6.5, -51.5, -6.5, -61, G, [], BASE_Y);
-  wall(-6.5, -61, -0.5, -61, G, [], BASE_Y);
+  // The basement floor under the shaft runs from x -6.5 to 6 and z -61 to
+  // -46.5, so every edge of it needs a wall at basement level. The west wall
+  // used to stop at z -51.5 and there were no east or south walls past the
+  // stairs: a player stepping off the landing walked into the void below the
+  // building. Ground-floor walls do not help here -- they start at y 0, and
+  // the player ducks underneath them from the basement.
+  //
+  // Only the edges of the shaft opening rise above the ground floor (a 0.6m lip
+  // that stops people walking into the hole). Everything that runs *under* the
+  // ground floor stops exactly at y 0 -- at full height these walls stuck up
+  // through the floor and put a knee-high barrier across the rear corridor on
+  // the route to extraction.
+  const UNDER = Math.abs(BASE_Y);
+  wall(-6.5, -51.5, -6.5, -61, G, [], BASE_Y, 'painted');        // shaft edge, with lip
+  wall(-6.5, -46.5, -6.5, -51.5, UNDER, [], BASE_Y, 'painted');  // under the floor
+  wall(-6.5, -61, -0.5, -61, G, [], BASE_Y, 'painted');          // shaft edge, with lip
+  wall(-0.5, -61, 6, -61, UNDER, [], BASE_Y, 'painted');
+  wall(6, -61, 6, -46.5, UNDER, [], BASE_Y, 'painted');
   box('steel', 0.16, 1.15, 8.0, -0.5, 0.575, -55.5);
 
   // the stairs themselves
@@ -359,6 +375,19 @@ export function buildFacility(scene, mats, PAL) {
   wall(24, -44, 24, -28, BH, [], BASE_Y, 'painted');
   wall(8, -28, 24, -28, BH, [], BASE_Y, 'painted');
   wall(8, -44, 24, -44, BH, [], BASE_Y, 'painted');
+
+  // The corridor door (x 6) and the armory door (x 8) are 2m apart, and that
+  // gap was open at both ends. It led into dead space behind every basement
+  // room, which ran to the edge of the basement slab with no wall -- the hole
+  // scan found 194 reachable spots with nothing under them. A short vestibule
+  // closes the passage, and a perimeter wall seals the slab edge regardless.
+  wall(6, -32.9, 8, -32.9, BH, [], BASE_Y, 'painted');
+  wall(6, -35.1, 8, -35.1, BH, [], BASE_Y, 'painted');
+  wall(-28, -23, 26, -23, BH, [], BASE_Y, 'painted');
+  wall(-28, -47, -28, -23, BH, [], BASE_Y, 'painted');
+  wall(26, -47, 26, -23, BH, [], BASE_Y, 'painted');
+  wall(-28, -47, -6, -47, BH, [], BASE_Y, 'painted');   // the corridor wall covers -6..6
+  wall(6, -47, 26, -47, BH, [], BASE_Y, 'painted');
 
   // ---------------------------------------------------------------- props
 

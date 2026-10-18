@@ -60,6 +60,11 @@ export function run(rs, opts = {}) {
   const maxSeconds = opts.maxSeconds || 26;
   game.start(MODE.SURVIVAL);
   game.player.state.health = 1e9;
+  // This test is about whether the level connects, not about locks, so open the
+  // campaign's keycard doors. Otherwise the result depends on which test ran
+  // before (campaigntest leaves them open, everything else closes them), and a
+  // shut lab door was being misread as the probe failing to steer.
+  if (game.campaign) for (const d of game.campaign.doors) game.campaign._openDoor(d);
   // The route is about the level, not about combat.
   game.queued = 0; game.waveActive = false; game.breakT = 1e9;
   for (const r of game.robots) game.scene.remove(r.root);
@@ -121,5 +126,8 @@ export function run(rs, opts = {}) {
   }
 
   const failed = legs.filter((l) => !l.reached);
-  return { total: legs.length, passed: legs.length - failed.length, failed, legs };
+  // A leg that ends far below any floor means the walker found a hole in the
+  // level, which matters far more than a leg the probe could not steer.
+  const fellOut = legs.filter((l) => l.endedAt[1] < -10).map((l) => l.leg);
+  return { total: legs.length, passed: legs.length - failed.length, failed, fellOut, legs };
 }

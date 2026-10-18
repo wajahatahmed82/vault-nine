@@ -1,122 +1,73 @@
-# ROBOT STRIKE
+# VAULT NINE
 
-**Play: https://wajahatahmed82.github.io/robot-strike/**
+A story-driven tactical shooter for the browser and Android. Contact with Meridian Ridge Research Station stopped fourteen hours ago. Find out why.
 
-A single-player wave-defence FPS. You hold an abandoned robotics facility
-against escalating waves of hostile soldiers. Original throughout -- no
-characters, maps, assets, audio or names taken from any existing game.
+- **Play in a browser:** https://wajahatahmed82.github.io/vault-nine/
+- **Android test build:** [android-latest release](https://github.com/wajahatahmed82/vault-nine/releases/tag/android-latest)
+- **Privacy policy:** https://wajahatahmed82.github.io/vault-nine/privacy.html
 
-Enemies are human but the game is bloodless by design: hits throw dust and kit
-fragments. That keeps the age rating low and short-form platforms from
-suppressing clips, at no cost to how the shooting feels.
+Everything is generated in code with Three.js: geometry, textures, characters and sound. There are no model, texture or audio files and nothing is licensed from anyone.
+
+## The game
+
+- **Campaign, "The Signal":** eight objectives through a two-floor research station, with keycards, locked doors, checkpoints and a story told through logs, recordings and terminals.
+- **Human enemies** on a 19-bone skinned rig. They patrol, guard, notice you through a vision cone, take cover, flank and react to casualties. Stealth works; crouching halves how fast you're spotted.
+- **Gunplay** with per-weapon learnable recoil patterns, surface-matched bullet impacts, scope sway with breath-holding, tactical and empty reloads.
+- **Survival and Time Attack** arcade modes.
+- **Phones:** landscape touch controls, a contextual USE button, automatic quality that starts lean and adapts to real frame time.
 
 ## Controls
 
-**Desktop** — WASD move · Shift sprint · Ctrl/C crouch · Space jump ·
-mouse aim · LMB fire · RMB sights · R reload · 1-4 weapons · wheel swap ·
-Esc pause
+| Desktop | Phone |
+|---|---|
+| WASD move, mouse look | left thumb drag to move, right side drag to look |
+| Left click fire, right click aim | FIRE, ADS |
+| Shift sprint (hold breath while scoped) | push the stick to its edge to sprint, BREATH while scoped |
+| Ctrl crouch, Space jump, R reload | CRCH, JUMP, RELD |
+| E interact | USE (appears when something is in reach) |
+| 1–4 weapons, I inspect, Esc pause | SWAP, inspect button, pause button |
 
-**Touch** — left thumb is a floating movement stick (push full forward to
-sprint), right thumb aims, buttons bottom-right for fire / sights / reload /
-jump / crouch / swap.
+## Run and build
 
-## Modes
+```bash
+node tools/serve.js 5181
+```
 
-- **Survival** — waves of 5, 8, 12, then +4 each. Stronger chassis unlock as
-  waves progress. Clearing a wave resupplies you.
-- **Time Attack** — five minutes, continuous pressure, maximise score.
+Then open http://localhost:5181.
 
-## Enemies
+```bash
+npx --no-install esbuild src/main.js --bundle --format=iife --minify --outfile=dist/bundle.js
+node tools/build.js
+```
 
-| Loadout | Health | Speed | Behaviour |
-|---|---|---|---|
-| Recon | 55 | fast | Light kit, no helmet. Closes and strikes at short range |
-| Rifleman | 130 | medium | Helmet, plate carrier, pack. Three-round bursts at 20m |
-| Gunner | 420 | slow | Heavy plate, shoulder guards, drum-fed. Wave 4+ |
-| Operator | 260 | fast | Balaclava and goggles. Four-round bursts, breaks to cover when hurt. Wave 6+ |
+`tools/build.js` writes the single-file game to `docs/`, which GitHub Pages serves. Pushing to `main` also triggers `.github/workflows/android.yml`, which wraps that same file with Capacitor and publishes a test APK.
 
-Built to real proportions: 1.73m to 1.95m tall, tapered cylindrical limbs rather
-than boxes. Six draw calls each regardless of piece count.
+## Shipping
 
-AI is a real state machine — idle, patrol, alert, chase, attack, search,
-retreat, dead. Robots need line of sight to engage, lose track when it breaks,
-search the last known position, strafe rather than walking straight in, and the
-Elite chassis retreats under fire.
+The `store/` folder holds the Play Store listing text, icon, feature graphic and screenshots, plus step-by-step guides:
 
-## Weapons
+- `store/PLAY_STORE.md`: account, upload key, the 12-tester closed test, and production
+- `store/ITCH.md`: free browser release on itch.io
+- `store/APP_STORE.md`: what iOS needs and the cheapest way to get it
 
-VK-7 Rifle (auto, 30 rnd) · Hornet SMG (950 RPM, 40 rnd) ·
-Breacher 12 (9 pellets) · Longview .50 (135 dmg, 4x scope).
-Unlocked by level. Headshots multiply damage per weapon.
+## Tests
 
-## Progression
+Run in the browser console on the dev server (or the built `docs/index.html`):
 
-XP from kills, headshots and wave clears. Each level grants an upgrade point.
-Six upgrade tracks (damage, magazine, reload, recoil, fire rate, accuracy),
-five ranks each. Every rank is a live multiplier the weapon system reads, so
-buying one changes how the gun handles immediately.
-
-## Run it
-
-    npm install
-    node tools/serve.js 5181
-    # http://localhost:5181
-
-The dev server sends `no-store`. The default python one caches, which produced
-a scene lit by new intensities and old colours after an edit.
-
-Flags: `?capture=1` enables `preserveDrawingBuffer` for screenshot tooling
-(off by default, it costs real performance).
-
-## Build
-
-    npx esbuild src/main.js --bundle --format=iife --minify --outfile=dist/bundle.js
-    node tools/build.js
-
-Produces one self-contained file in `docs/` with no external requests.
-
-## Performance
-
-Measured with a GPU sync at 800x600, robots at the 14 cap and at 40:
-
-    14 robots   sim 1.03ms   render 5.57ms   total 6.59ms   152 fps
-    40 robots   sim 4.18ms   render 12.36ms  total 16.54ms   60 fps
-
-Key decisions behind that:
-
-- **AI line of sight tests collider boxes, not meshes.** Raycasting the merged
-  map geometry walks every triangle; at a dozen robots it cost more than the
-  entire render. Slab tests against ~145 boxes dropped AI cost from 35.6ms to
-  4.2ms at 40 robots.
-- **Sight checks are staggered** across three frames per robot and cached.
-- **Everything static is merged per material**, and robots use vertex colours,
-  so a full robot is six draw calls no matter how many pieces it has.
-- **The weapon renders in a second pass on its own layer**, so its two lights
-  shade only the weapon instead of every pixel in the world.
-- **Only two lights touch the world.** Everything that looks like a lamp is
-  emissive geometry, which costs nothing per pixel.
-- Shadow map refreshes every other frame; `renderer.compile()` runs at boot to
-  remove a 100ms+ first-draw stall; render scale auto-tunes to hold 60fps.
+```js
+(await import('/tools/campaigntest.js')).run(__rs)   // mission playthrough, 25 checks
+(await import('/tools/gunfeeltest.js')).run(__rs)    // recoil, spread, scope, impacts, 12 checks
+(await import('/tools/mobiletest.js')).run(__rs)     // phone controls, 11 checks
+(await import('/tools/inputstress.js')).run(__rs)    // simultaneous input, 15 checks
+(await import('/tools/walktest.js')).run(__rs)       // level route walkability
+```
 
 ## Layout
 
-    src/config.js       all tuning: weapons, robots, waves, scoring, palette
-    src/main.js         renderer, quality ladder, frame loop
-    src/game.js         modes, wave director, hit resolution, combo scoring
-    src/player.js       movement, crouch, jump, collision with step-up
-    src/weapons.js      four weapons, switching, recoil, reload, ADS
-    src/viewmodel.js    parametric weapon builder driven by config shape
-    src/enemies.js      four loadouts, AI state machine, stuck recovery
-    src/scene.js        the facility, colliders, lighting
-    src/materials.js    procedural albedo/roughness/normal generation
-    src/hud.js          HUD, main menu, loadout, settings, pause, game over
-    src/progression.js  XP, levels, upgrade tracks
-    src/settings.js     persisted settings
-    src/audio.js        procedural weapon audio, no sample files
-
-## Not done
-
-- No human playtesting. All balance figures come from a scripted bot.
-- No armour pickups; the armour bar exists and is honoured by damage but
-  nothing grants it yet.
-- Environmental destruction is not implemented.
+```
+src/            game source (facility, campaign, soldiers, weapons, recoil, input, HUD)
+tools/          build, dev server, test suites
+docs/           built single-file game and privacy policy, served by GitHub Pages
+android/        Capacitor Android project
+store/          store listing, graphics and release guides
+```
