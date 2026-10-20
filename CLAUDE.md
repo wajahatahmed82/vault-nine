@@ -166,6 +166,24 @@ Weapons: `CFG.attachments` stat multipliers via `W.attMul`, `CFG.fits` per weapo
 - **A pickup during the swap animation must retarget the swap.** `give()` sets `pendingSwap`, otherwise the gun just dropped stays in hand.
 - **Crates have no collider.** Check the spot is clear (`game.grid.segment`) before placing one; the first roadblock spot was inside a parked car.
 
+## Presentation (Phase 4)
+
+`src/minimap.js`: map pre-drawn once from `grid.all` colliders + `town.streets` (2 px/m, 1 on phones; ground and basement layers), drawn as a rotated crop (view up) at 30 Hz; compass bar 120 deg. Objective = `campaign.markerPos()` from each stage's `mark` (interactable id or function). Enemy gunfire = `game.fireMarks` (2.5 s).
+
+Audio: `audio.spatial.*` wrap tone/noise layers in a PannerNode (HRTF desktop, equalpower phones) + distance lowpass; `curBus` routes layers built inside `at()`. Listener follows the camera every frame (`audio.setListener`). `audio.spatialLog` (ring of 40, `seq` numbered) is what tests read. `deafen()` muffles the sfx bus for flashbangs. Voices are formant-synth barks (not words); text via `game.onCallout`.
+
+Enemies: magazines (`MAG`) and reload with callout, `ctx.callout/onStep/throwNade`, `blindT` from flashbangs, elites/assaults throw a flashbang when they lose sight of a near player. `game.callout` has a shared 0.9 s and per-soldier 4 s cooldown.
+
+`src/screenfx.js`: suppression (with incoming direction), hurt, chroma, low-health desat, flash; settings `fxSuppression/fxLowHealth/fxFlash/fxChroma`. Post on: one `EffectsShader` pass in post.js (disabled when idle). Post off: `#screenfx` CSS layer (no blur, no RGB split). `showHud` setting adds `.nohud` to `#combat`.
+
+AO: depth-only SSAO in `post.applyAO`, called by `Game.renderScene` between the world and weapon passes; composer targets carry DepthTexture; half-res, multiplied in with a custom blend. `ao` knob in presets (high/ultra), desktop auto on and dropped first by the auto-tuner. Cost measured only as a ratio under throttling (~6% GPU frame time).
+
+    const t = await import('/tools/presenttest.js'); t.run(__rs)   // 21 checks
+
+- **The hidden browser pane throttles timers and rAF.** Front the tab (`tabs_select`) before timing anything, and don't await setTimeout loops while hidden.
+- **Audio-log tests must use `seq`, not indices** -- the log is a ring.
+- **Test scenes need open ground.** Main Street has parked cars along both kerbs that block soldiers' sight; the Ridge Road / Main Street junction (0, 110) is open on four sides.
+
 ## Mobile and Android
 
 Touch: contextual USE (`#btn-interact`, label = first word of the prompt, red LOCKED when keycard too low), BREATH when scoped, inspect, turn-sideways card in portrait, fullscreen + landscape lock from the start tap. `tools/mobiletest.js` (11 checks) includes a press-and-release with no frame between.
