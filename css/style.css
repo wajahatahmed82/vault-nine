@@ -328,7 +328,7 @@ body{
 #screenfx i:nth-child(3){background:#fff}
 
 /* at the wheel there is nothing to aim */
-#combat.driving #crosshair,#combat.driving #hitmarker,#combat.driving #reload-ring{display:none}
+#combat.driving #crosshair,#combat.driving #hitmarker,#combat.driving #reload-ring,#combat.driving #weaponbox,#combat.driving #scope{display:none}
 
 /* HUD hidden: only the controls and the scope stay */
 #combat.nohud > :not(#controls):not(#stick):not(#scope):not(#vignette){display:none!important}

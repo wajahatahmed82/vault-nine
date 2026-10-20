@@ -60,7 +60,7 @@ export class Input {
     // `interact` is queued as well as held: a tap shorter than one frame
     // presses and releases between samples, and a held-only flag never sees it.
     this.queue = { jump: 0, reload: 0, pause: 0, inspect: 0, interact: 0, prone: 0, tactical: 0, switchTo: null,
-      frag: 0, smoke: 0, flash: 0, plate: 0, medkit: 0, inventory: 0, zero: 0 };
+      frag: 0, smoke: 0, flash: 0, plate: 0, medkit: 0, inventory: 0, zero: 0, camView: 0 };
     this.lastShift = -1;
 
     // --- look / stick ---
@@ -140,6 +140,7 @@ export class Input {
       if (e.code === 'KeyG') this.queue.frag++;
       if (e.code === 'KeyT') this.queue.smoke++;
       if (e.code === 'KeyV') this.queue.flash++;
+      if (e.code === 'KeyC') this.queue.camView++;
       if (e.code === 'KeyB') this.queue.plate++;
       if (e.code === 'KeyH') this.queue.medkit++;
       if (e.code === 'Tab') this.queue.inventory++;
@@ -346,6 +347,7 @@ export class Input {
       frag: this.queue.frag > 0,
       smoke: this.queue.smoke > 0,
       flash: this.queue.flash > 0,
+      camView: this.queue.camView > 0,
       plate: this.queue.plate > 0,
       medkit: this.queue.medkit > 0,
       inventory: this.queue.inventory > 0,
@@ -361,7 +363,7 @@ export class Input {
     this.queue.prone = 0;
     this.queue.tactical = 0;
     this.queue.switchTo = null;
-    this.queue.frag = this.queue.smoke = this.queue.flash = this.queue.plate = this.queue.medkit = this.queue.inventory = this.queue.zero = 0;
+    this.queue.camView = this.queue.frag = this.queue.smoke = this.queue.flash = this.queue.plate = this.queue.medkit = this.queue.inventory = this.queue.zero = 0;
     return r;
   }
 
@@ -371,7 +373,7 @@ export class Input {
     this.queue.reload = 0;
     this.queue.pause = 0;
     this.queue.switchTo = null;
-    this.queue.frag = this.queue.smoke = this.queue.flash = this.queue.plate = this.queue.medkit = this.queue.inventory = this.queue.zero = 0;
+    this.queue.camView = this.queue.frag = this.queue.smoke = this.queue.flash = this.queue.plate = this.queue.medkit = this.queue.inventory = this.queue.zero = 0;
   }
 
   // ---------------- diagnostics ----------------

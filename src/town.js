@@ -1052,7 +1052,8 @@ function dressStreets(P, solid, glows, ctx, r) {
       PR.car(P(x, z), solid, x, T(x, z), z, side > 0 ? 0 : Math.PI, pick(r, PR.COLOURS.car));
     }
   }
-  PR.car(P(-1.2, 236), solid, -1.2, T(-1.2, 236), 236, 0.35, PR.COLOURS.car[2], { doorOpen: true });
+  // abandoned with its door open; leaves a lane a vehicle can get through
+  PR.car(P(-1.6, 236), solid, -1.6, T(-1.6, 236), 236, 0.15, PR.COLOURS.car[2], { doorOpen: true });
   PR.car(P(3.6, 150), solid, 3.6, T(3.6, 150), 150, -0.6, PR.COLOURS.car[1]);
   PR.car(P(-60, 166), solid, -60, T(-60, 166), 166, 1.2, PR.COLOURS.car[5], { doorOpen: true });
   PR.car(P(48, 248), solid, 48, T(48, 248), 248, 0.2, PR.COLOURS.car[6]);

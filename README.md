@@ -33,7 +33,7 @@ Almost everything is generated in code with Three.js: geometry, characters, soun
 | F interact | USE (appears when something is in reach) |
 | 1–5 weapons (primaries, then sidearm), I inspect, Esc pause | SWAP, inspect button, pause button |
 | G frag, T smoke, V flashbang, B armour plate, H medkit, Tab pack (attachments, gear), [ ] sniper zero | NADE, BAG |
-| Truck: F in/out, W/S throttle, A/D steer, Space brake, mouse orbits the camera | USE, stick, FIRE brakes |
+| Truck: F in/out, W/S throttle, A/D steer, Space brake; the camera follows on its own (mouse looks around, drifts back), C bonnet view | USE, stick, FIRE brakes, SWAP for the view |
 
 ## Run and build
 
@@ -73,6 +73,7 @@ Run in the browser console on the dev server (or the built `docs/index.html`):
 (await import('/tools/presenttest.js')).run(__rs)    // HUD, 3D audio, callouts, camera effects, AO, 21 checks
 (await import('/tools/mission2test.js')).run(__rs)   // mission 2 playthrough, 11 checks
 (await import('/tools/vehicletest.js')).run(__rs)    // the truck, 8 checks
+(await import('/tools/drivetest.js')).run(__rs)      // driving camera on the mission 2 streets, keys only, 7 checks
 (await import('/tools/walktest.js')).run(__rs, { route: 'mission2' })   // mission 2 street route
 (await import('/tools/holescan.js')).run(__rs, { town: true })   // reachable spots with no floor
 (await import('/tools/perftest.js')).run(__rs, { preset: 'high' })   // worst-view search and timings

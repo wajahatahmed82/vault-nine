@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import * as audio from './audio.js';
+import { CFG } from './config.js';
 
 // One drivable vehicle: a courier's pickup truck, mission 2 only.
 //
 // Arcade handling -- throttle, brake (Space), steering that scales with speed
 // -- on the analytic terrain, colliding with the same boxes the player does
 // (the truck's footprint is sampled at eight points). The camera orbits behind
-// it with the mouse. F gets in and out. Running a soldier down at speed kills
+// it on its own, swinging round behind the direction of travel; the mouse
+// can look around and the view drifts back 1.5 s after it stops. C (or SWAP)
+// switches to a cab view. F gets in and out. Running a soldier down at speed kills
 // him. Rounds aimed at the driver do half damage through the cab.
 //
 // Original design: a plain two-tone pickup built from boxes.
@@ -60,6 +63,11 @@ export class Vehicle {
     this.x = 0; this.z = 0; this.y = 0; this.heading = 0; this.speed = 0;
     this.bumps = 0;          // collisions this run, for tests
     this._v = new THREE.Vector3();
+    this._t = new THREE.Vector3();
+    // chase camera
+    this.view = 'chase';
+    this.camYaw = 0; this.lookYaw = 0; this.lookPitch = 0; this.lookIdle = 9;
+    this.camDist = 6.5; this.shake = 0;
   }
 
   place(x, z, heading) {
@@ -95,6 +103,8 @@ export class Vehicle {
     g.weapons.wantAds = false;
     const p = g.player.state;
     p.yaw = this.heading; p.pitch = -0.12;
+    this.camYaw = this.heading; this.lookYaw = 0; this.lookPitch = 0; this.lookIdle = 9;
+    this.camDist = 6.5; this.shake = 0; this.yawRate = 0; this._lastHeading = this.heading;
     audio.engine.start();
   }
 
@@ -113,13 +123,17 @@ export class Vehicle {
     p.y = g.player.groundAt(p.x, p.z, this.y + 1.5);
     p.vx = p.vy = p.vz = 0;
     g.weapons.model.gun.visible = true;
+    g.camera.fov = g.fovCurrent = g.baseFov;
+    g.camera.updateProjectionMatrix();
     g.player.applyToCamera(0);
   }
 
   // Would the truck's footprint at (x, z, heading) hit anything?
   _blocked(x, z, h) {
     const g = this.game, s = Math.sin(h), c = Math.cos(h);
-    for (const [lx, lz] of [[-0.75, -2.0], [0.75, -2.0], [-0.75, 2.0], [0.75, 2.0], [-0.75, 0], [0.75, 0], [0, -2.1], [0, 2.1]]) {
+    // blockedAt already pads each point by 0.55 m, so these sit 0.55 m inside
+    // the body: the footprint comes out at the truck's real 2.0 x 4.6 m
+    for (const [lx, lz] of [[-0.45, -1.75], [0.45, -1.75], [-0.45, 1.75], [0.45, 1.75], [-0.45, 0], [0.45, 0], [0, -1.75], [0, 1.75]]) {
       // local +x is the truck's right, -z its front
       const wx = x + lx * c + lz * s, wz = z - lx * s + lz * c;
       if (g.blockedAt(wx, wz)) return true;
@@ -152,7 +166,7 @@ export class Vehicle {
     const nx = this.x - s * this.speed * dt, nz = this.z - c * this.speed * dt;
     if (this.speed !== 0) {
       if (this._blocked(nx, nz, this.heading)) {
-        if (Math.abs(this.speed) > 4) { audio.spatial.impact(nx, this.y + 0.8, nz, 'metal'); this.game.fx.addShake(Math.min(0.05, Math.abs(this.speed) * 0.003)); }
+        if (Math.abs(this.speed) > 4) { audio.spatial.impact(nx, this.y + 0.8, nz, 'metal'); this.shake = Math.min(1, Math.abs(this.speed) / 10); }
         this.speed *= -0.25;
         this.bumps++;
       } else {
@@ -192,17 +206,76 @@ export class Vehicle {
     for (const w of this.wheels) w.rotation.x -= this.speed * dt / 0.42;
   }
 
-  // The driver sits in the cab; the camera orbits behind with the mouse.
-  placeDriverAndCamera() {
+  // The driver sits in the cab. The camera follows on its own: its base
+  // direction springs round to the truck's heading (faster at speed), the
+  // mouse adds a look offset that relaxes back once the mouse is still, the
+  // boom lengthens and the FOV widens with speed, and the boom is shortened
+  // against anything solid between the truck and the camera.
+  // look: { dx, dy, view } -- this frame's mouse movement and the view key.
+  placeDriverAndCamera(dt, look = {}) {
     const g = this.game, p = g.player.state, cam = g.camera;
     p.x = this.x; p.z = this.z; p.y = this.y + 0.2;
     p.vx = p.vy = p.vz = 0;
-    const dir = this._v.set(-Math.sin(p.yaw) * Math.cos(p.pitch), Math.sin(p.pitch), -Math.cos(p.yaw) * Math.cos(p.pitch));
-    const tx = this.x, ty = this.y + 1.8, tz = this.z;
-    let d = 7;
-    // pull in if the boom would go into a wall
-    for (; d > 2.5; d -= 0.5) if (!g.blockedAt(tx - dir.x * d, tz - dir.z * d)) break;
-    cam.position.set(tx - dir.x * d, Math.max(ty - dir.y * d, g.player.groundAt(tx - dir.x * d, tz - dir.z * d, ty + 3) + 0.6), tz - dir.z * d);
-    cam.rotation.set(p.pitch, p.yaw, 0, 'YXZ');
+    if (look.view) this.view = this.view === 'chase' ? 'cab' : 'chase';
+    const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+
+    const sens = CFG.camera.lookSens * (g.player.sensMul || 1);
+    if (look.dx || look.dy) {
+      this.lookYaw = wrap(this.lookYaw - (look.dx || 0) * sens);
+      this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - (look.dy || 0) * sens, -0.9, 0.7);
+      this.lookIdle = 0;
+    } else this.lookIdle += dt;
+    if (this.lookIdle > 1.5) {
+      const k = 1 - Math.exp(-3 * dt);
+      this.lookYaw -= this.lookYaw * k; this.lookPitch -= this.lookPitch * k;
+    }
+    // behind the truck whichever way it is rolling: reversing keeps the view
+    // looking along the bonnet, it never spins round
+    const sp = Math.abs(this.speed);
+    // lead into turns: aim where the truck will be pointing a moment from now,
+    // so in a tight corner the road it is turning onto stays in view
+    if (this._lastHeading === undefined) this._lastHeading = this.heading;
+    const rate = dt > 0 ? wrap(this.heading - this._lastHeading) / dt : 0;
+    this._lastHeading = this.heading;
+    this.yawRate = THREE.MathUtils.damp(this.yawRate || 0, rate, 6, dt);
+    // half the turn the truck will make in the next 0.8 s: the middle of the arc
+    const lead = THREE.MathUtils.clamp(this.yawRate * 0.4, -0.6, 0.6);
+    this.camYaw = wrap(this.camYaw + wrap(this.heading + lead - this.camYaw) * (1 - Math.exp(-(5 + sp * 0.2 + Math.abs(this.yawRate) * 8) * dt)));
+    const k01 = Math.min(1, sp / MAX_FWD);
+    this.shake = Math.max(0, this.shake - dt * 2.5);
+    const rumble = k01 * 0.004 + this.shake * 0.03;
+    const sx = (Math.random() - 0.5) * rumble, sy = (Math.random() - 0.5) * rumble;
+
+    let yaw, pitch;
+    if (this.view === 'cab') {
+      yaw = wrap(this.heading + this.lookYaw);
+      pitch = this.lookPitch - 0.04;
+      // a bonnet camera: centred, just behind the windscreen, above the cab
+      // line so the bonnet is a strip at the bottom of the view, not half of it
+      const s = Math.sin(this.heading), c = Math.cos(this.heading);
+      cam.position.set(this.x - s * 1.55, this.y + 2.05, this.z - c * 1.55);
+    } else {
+      yaw = wrap(this.camYaw + this.lookYaw);
+      pitch = -0.16 - k01 * 0.04 + this.lookPitch;
+      const dir = this._v.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+      const T = this._t.set(this.x, this.y + 1.9, this.z);
+      const want = 6.2 + 2.6 * k01;
+      this.camDist = THREE.MathUtils.damp(this.camDist, want, 3, dt);
+      let d = this.camDist;
+      // shorten the boom against walls, the station and the hillside
+      const back = dir.clone().negate();
+      const hit = g.traceShot(T, back, d + 0.4, true);
+      if (hit && hit.distance < d + 0.4) d = Math.max(1.4, hit.distance - 0.4);
+      const cx = T.x - dir.x * d, cz = T.z - dir.z * d;
+      // outdoors the hillside can be above the truck: ask from above both
+      const top = g.player.inVoid && g.player.inVoid(cx, cz) ? T.y + 2 : Math.max(T.y, g.surfaceH(cx, cz)) + 2;
+      const floor = g.player.groundAt(cx, cz, top) + 0.5;
+      cam.position.set(cx, Math.max(T.y - dir.y * d, floor), cz);
+    }
+    p.yaw = yaw; p.pitch = pitch;
+    cam.rotation.set(pitch + sy, yaw + sx, 0, 'YXZ');
+    const fov = g.baseFov + (this.view === 'chase' ? 9 * k01 : 4 * k01);
+    if (Math.abs(cam.fov - fov) > 0.05) { cam.fov = fov; cam.updateProjectionMatrix(); }
+    g.fovCurrent = fov;
   }
 }

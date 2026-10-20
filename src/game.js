@@ -784,7 +784,11 @@ export class Game {
     // Space is held as 'fire' in the input layer, so that is the brake (and on
     // a phone, FIRE)
     const drive = { throttle: -inp.moveY, steer: inp.moveX, brake: inp.firing || inp.jump };
+    // the mouse looks around the truck instead of turning the player; C or
+    // SWAP flips between the chase and cab views
+    const look = { dx: inp.dx, dy: inp.dy, view: inp.camView || inp.switchTo === 'next' };
     if (driving) {
+      inp.dx = inp.dy = 0;
       inp.moveX = inp.moveY = 0; inp.jump = inp.crouch = inp.sprint = false; inp.lean = 0;
       inp.prone = inp.tactical = false; inp.firing = inp.ads = false;
       inp.reload = inp.frag = inp.smoke = inp.flash = inp.plate = inp.medkit = inp.inventory = false;
@@ -896,7 +900,7 @@ export class Game {
     this.vehicle.update(dt, drive);
     if (this.vehicle.driving) {
       this.weapons.model.gun.visible = false;
-      this.vehicle.placeDriverAndCamera();
+      this.vehicle.placeDriverAndCamera(dt, look);
     }
 
     // keep the shadow frustum on the player

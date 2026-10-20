@@ -198,6 +198,13 @@ AO: depth-only SSAO in `post.applyAO`, called by `Game.renderScene` between the 
 - **Main Street has a burning car at z 206 and the roadblock at z 302 in the middle of the road.** Routes go round them (x -2.5 past the car, the east pavement x 8.2 past the roadblock).
 - **Patrols pause at each end of their beat** -- give movement checks ten seconds, not three.
 
+Driving camera (graphics prompt Phase 1): `placeDriverAndCamera(dt, look)` -- base yaw springs to heading + 0.4 x yaw rate (leads into turns), mouse look offset relaxes after 1.5 s idle, boom 6.2-8.8 m and FOV +9 with speed, boom shortened by `traceShot` (station meshes, town boxes, terrain), floor clamp asks from above the outdoor surface. C or SWAP toggles a bonnet view. Truck footprint samples sit 0.55 m inside the body because `blockedAt` pads by 0.55.
+
+    const d = await import('/tools/drivetest.js'); d.run(__rs)   // keys-only autopilot over the mission 2 streets, 7 checks
+
+- **drivetest judges "where I'm going" as where the truck actually is 0.8 s later**, from the camera of the judged frame; a thin pole may hide it briefly, so the pass mark is "never hidden longer than 0.25 s" (actual: 99.55% of frames visible, longest gap 0.1 s).
+- **The abandoned car on Main Street (z 236) was moved 0.4 m kerbward** so a vehicle lane is 3.4 m wide; the truck used to wedge there.
+
 ## Mobile and Android
 
 Touch: contextual USE (`#btn-interact`, label = first word of the prompt, red LOCKED when keycard too low), BREATH when scoped, inspect, turn-sideways card in portrait, fullscreen + landscape lock from the start tap. `tools/mobiletest.js` (11 checks) includes a press-and-release with no frame between.
