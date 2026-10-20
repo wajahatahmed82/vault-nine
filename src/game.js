@@ -66,7 +66,9 @@ export class Game {
     this.losRay = new THREE.Raycaster();
     this.losRay.far = 120;
 
-    this.player.onFootstep = (s) => audio.sfx.footstep(s);
+    this.player.onFootstep = (s, stance) => audio.sfx.footstep(s, this.surfaceUnder(), stance, this.atmos && this.atmos.state.weather === 'rain' && !this.player.inVoid(this.player.state.x, this.player.state.z));
+    this.player.onSlide = (on) => { if (on) audio.sfx.slide(); };
+    this.player.onMantle = () => audio.sfx.mantle();
     this.player.onLand = () => audio.sfx.land();
 
     this.robots = [];
@@ -240,6 +242,20 @@ export class Game {
 
   // ---------------- world queries used by the AI ----------------
 
+  // What the player is standing on, for footsteps: a prop or roof they are on
+  // top of, the station's concrete, a timber floor indoors, or the town's
+  // ground (road, paving, grass, gravel, concrete).
+  surfaceUnder() {
+    const p = this.player.state;
+    for (const c of this.grid.query(p.x, p.z, p.x, p.z)) {
+      if (p.x < c.minX || p.x > c.maxX || p.z < c.minZ || p.z > c.maxZ || Math.abs(c.top - p.y) > 0.08) continue;
+      return c.surf === 'metal' || c.surf === 'car' || c.surf === 'fuelcar' ? 'metal' : c.surf === 'wood' ? 'wood' : 'concrete';
+    }
+    if (this.player.inVoid(p.x, p.z)) return 'concrete';
+    if (this.town) return this.town.groundKind(p.x, p.z, p.y);
+    return 'asphalt';
+  }
+
   // Feet height for the AI's blocked test. On the station shelf and inside the
   // building this is 0, exactly the old absolute thresholds; in town it is the
   // ground under the soldier.
@@ -347,7 +363,10 @@ export class Game {
   // Raycasting merged geometry walks every triangle in the map, which at a
   // dozen robots was costing more than the entire render.
   canSee(from, playerState) {
-    const tx = playerState.x, ty = playerState.y + 1.3, tz = playerState.z;
+    // aim at the player's head, wherever leaning or lying down has put it
+    const ps = playerState;
+    const tx = ps.x + (ps.leanX || 0) * 0.85, tz = ps.z + (ps.leanZ || 0) * 0.85;
+    const ty = ps.y + (ps.prone > 0.5 ? 0.35 : ps.crouch > 0.5 ? 0.9 : 1.3);
     const dx = tx - from.x, dy = ty - from.y, dz = tz - from.z;
     const dist = Math.hypot(dx, dy, dz);
     if (dist < 0.5) return true;
@@ -632,6 +651,7 @@ export class Game {
       moveX: inp.moveX, moveY: inp.moveY,
       lookDX: inp.dx, lookDY: inp.dy,
       jump: inp.jump, crouch: inp.crouch, sprint: inp.sprint,
+      lean: inp.lean, prone: inp.prone, tactical: inp.tactical,
     }, this.weapons.ads);
 
     // Whatever the mouse did this frame counts against the recoil the player
@@ -649,8 +669,9 @@ export class Game {
       CFG.camera.pitchMin - 0.3, CFG.camera.pitchMax + 0.3);
 
     this.weapons.setMotion(this.player.moveAmount, inp.dx * 0.05, inp.dy * 0.05, {
-      sprinting: ps.sprinting,
-      airborne: !ps.grounded,
+      sprinting: ps.sprinting || ps.mantling,
+      airborne: !ps.grounded && !ps.mantling,
+      stance: ps.slideT > 0 ? 1.6 : ps.prone > 0.5 ? 0.55 : ps.crouch > 0.5 ? 0.85 : 1,
       // Shift while scoped holds breath; sprint is already blocked while aiming.
       holdBreath: inp.sprint && this.weapons.ads > 0.6,
     });

@@ -24,9 +24,10 @@ Everything is generated in code with Three.js: geometry, textures, characters an
 |---|---|
 | WASD move, mouse look | left thumb drag to move, right side drag to look |
 | Left click fire, right click aim | FIRE, ADS |
-| Shift sprint (hold breath while scoped) | push the stick to its edge to sprint, BREATH while scoped |
-| Ctrl crouch, Space jump, R reload | CRCH, JUMP, RELD |
-| E interact | USE (appears when something is in reach) |
+| Shift sprint, Shift twice for a dash (hold breath while scoped) | push the stick to its edge to sprint, DASH, BREATH while scoped |
+| Ctrl crouch (slide when sprinting), Z prone, Space jump (vaults waist-high cover), R reload | CRCH, PRONE, JUMP, RELD |
+| Q / E lean | lean arrows above SWAP |
+| F interact | USE (appears when something is in reach) |
 | 1–4 weapons, I inspect, Esc pause | SWAP, inspect button, pause button |
 
 ## Run and build
@@ -60,7 +61,7 @@ Run in the browser console on the dev server (or the built `docs/index.html`):
 (await import('/tools/campaigntest.js')).run(__rs)   // mission playthrough, 25 checks
 (await import('/tools/gunfeeltest.js')).run(__rs)    // recoil, spread, scope, impacts, 12 checks
 (await import('/tools/mobiletest.js')).run(__rs)     // phone controls, 11 checks
-(await import('/tools/inputstress.js')).run(__rs)    // simultaneous input, 15 checks
+(await import('/tools/inputstress.js')).run(__rs)    // simultaneous input + movement set, 22 checks
 (await import('/tools/walktest.js')).run(__rs)       // level route walkability ({ route: 'town' } for the town)
 (await import('/tools/towntest.js')).run(__rs)       // town prologue, 11 checks
 (await import('/tools/holescan.js')).run(__rs, { town: true })   // reachable spots with no floor

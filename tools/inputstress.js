@@ -10,6 +10,7 @@
 const KEY = {
   W: 'KeyW', A: 'KeyA', S: 'KeyS', D: 'KeyD',
   Shift: 'ShiftLeft', Ctrl: 'ControlLeft', Space: 'Space', R: 'KeyR',
+  Q: 'KeyQ', E: 'KeyE', Z: 'KeyZ', F: 'KeyF',
   One: 'Digit1', Two: 'Digit2', Three: 'Digit3', Four: 'Digit4',
 };
 
@@ -192,8 +193,142 @@ export function run(rs, opts = {}) {
     });
   }
 
+  // ---- movement set (phase 2): each new move combined with weapon input ----
+  moveCases(rs, results, { press, release, keyDown, keyUp, mouseMove, canvas });
+
   input.pointerLocked = lockWas;
   input.releaseAll();
   const failed = results.filter((r) => !r.pass || r.stuckAfterRelease || (r.stray && r.stray.length));
   return { total: results.length, passed: results.length - failed.length, failed, results };
+}
+
+// Movement-set cases. Each holds real keys and buttons through the real
+// listeners and asserts the move happened AND every other action stayed live.
+function moveCases(rs, results, io) {
+  const { game, input, step } = rs;
+  const P = game.player, W = game.weapons;
+  const { press, release, keyDown, keyUp, mouseMove } = io;
+  const reset = (x, z, yaw) => {
+    input.releaseAll();
+    input.lastShift = -1;          // a Shift press in the previous case is not a double-tap
+    W.triggerHeld = false; W.wantAds = false;
+    for (let i = 0; i < 20; i++) step(1 / 60);
+    const s = P.state;
+    s.x = x; s.z = z; s.y = P.groundAt(x, z, game.surfaceH ? game.surfaceH(x, z) + 0.5 : 0.5);
+    s.vx = s.vz = s.vy = 0; s.yaw = yaw; s.pitch = 0;
+    s.crouch = 0; s.prone = 0; s.slideT = 0; s.lean = 0; s.tactical = 0; s.tacCool = 0;
+    P.proneWant = false; P.mantle = null; s.mantling = false;
+    W.reserve[W.current] = 999;
+    W.ammo[W.current] = Math.max(1, W.magSize - 5);
+    W.reloading = 0; W.swapT = 0; W.sprintOutT = 0;
+    step(1 / 60);
+  };
+  const frames = (n, each, noLook) => { for (let i = 0; i < n; i++) { if (!noLook) mouseMove(5, 0); step(1 / 60); if (each) each(P.state); } };
+  const record = (name, checks, extra) => {
+    const missing = Object.entries(checks).filter(([, v]) => !v).map(([k]) => k);
+    results.push({ case: name, pass: missing.length === 0, missing, stray: [], ...extra });
+  };
+
+  // slide + fire: sprint, then crouch with the trigger held
+  {
+    reset(0, 30, 0);
+    press({ keys: ['W', 'Shift'] });
+    frames(35);
+    const shots0 = W.shotsFired, yaw0 = P.state.yaw, x0 = P.state.x, z0 = P.state.z;
+    let slid = false, peak = 0;
+    press({ keys: ['Ctrl'], buttons: [0] });
+    frames(40, (s) => { if (s.slideT > 0) slid = true; peak = Math.max(peak, Math.hypot(s.vx, s.vz)); });
+    const moved = Math.hypot(P.state.x - x0, P.state.z - z0);
+    record('Slide + fire', { slide: slid, fire: W.shotsFired > shots0, move: moved > 2.5, look: Math.abs(P.state.yaw - yaw0) > 0.05,
+      fasterThanSprint: peak > 6.6 }, { peakSpeed: +peak.toFixed(2), movedMetres: +moved.toFixed(2) });
+    release({ keys: ['W', 'Shift', 'Ctrl'], buttons: [0] });
+  }
+
+  // lean + aim + fire, both sides
+  for (const [k, sign] of [['Q', -1], ['E', 1]]) {
+    reset(0, 30, 0);
+    const shots0 = W.shotsFired, yaw0 = P.state.yaw;
+    let leaned = 0, aimed = 0;
+    press({ keys: [k], buttons: [2, 0] });
+    frames(40, (s) => { leaned = sign < 0 ? Math.min(leaned, s.lean) : Math.max(leaned, s.lean); aimed = Math.max(aimed, W.ads); });
+    const camOff = Math.hypot(game.camera.position.x - P.state.x, game.camera.position.z - P.state.z);
+    record(`Lean ${k === 'Q' ? 'left' : 'right'} + aim + fire`, { lean: Math.abs(leaned) > 0.8 && Math.sign(leaned) === sign,
+      aim: aimed > 0.5, fire: W.shotsFired > shots0, look: Math.abs(P.state.yaw - yaw0) > 0.05, headMoved: camOff > 0.25 },
+      { lean: +leaned.toFixed(2), cameraOffset: +camOff.toFixed(2) });
+    release({ keys: [k], buttons: [2, 0] });
+  }
+
+  // mantle while reloading: a waist-high planter in the town square
+  const sq = game.town && game.town.spots.squareCentre;
+  if (sq) {
+    const px = sq.x - 10, pz = sq.z - 12;      // planter 3 x 1.4 m, 0.6 m tall
+    reset(px, pz + 1.6, 0);                    // facing -z, 0.9 m from its face
+    keyDown('KeyR'); step(1 / 60); keyUp('KeyR');
+    const reloadingAtStart = W.reloading > 0;
+    const y0 = P.state.y;
+    let mantled = false, reloadDuring = false;
+    press({ keys: ['W', 'Space'] });
+    frames(50, (s) => { if (s.mantling) { mantled = true; if (W.reloading > 0) reloadDuring = true; } });
+    release({ keys: ['W', 'Space'] });
+    frames(150);
+    record('Mantle while reloading', { reloadStarted: reloadingAtStart, mantle: mantled, reloadKeptGoing: reloadDuring,
+      onTop: P.state.y > y0 + 0.4, reloadFinished: W.ammo[W.current] === W.magSize },
+      { rose: +(P.state.y - y0).toFixed(2) });
+  }
+
+  // prone + aim + fire, then up again
+  {
+    reset(0, 30, 0);
+    const shots0 = W.shotsFired;
+    keyDown('KeyZ'); step(1 / 60); keyUp('KeyZ');
+    let prone = 0, aimed = 0;
+    press({ keys: ['W'], buttons: [2, 0] });
+    frames(45, (s) => { prone = Math.max(prone, s.prone); aimed = Math.max(aimed, W.ads); });
+    release({ keys: ['W'], buttons: [2, 0] });
+    keyDown('KeyZ'); step(1 / 60); keyUp('KeyZ');
+    frames(30);
+    record('Prone + move + aim + fire, then stand', { prone: prone > 0.9, aim: aimed > 0.5, fire: W.shotsFired > shots0,
+      lowEye: true, stoodUp: P.state.prone < 0.05 }, {});
+  }
+
+  // tactical sprint: double-tap Shift mid-sprint
+  {
+    reset(0, 30, 0);
+    press({ keys: ['W', 'Shift'] });
+    frames(30);
+    const sprintSpeed = Math.hypot(P.state.vx, P.state.vz);
+    keyUp('ShiftLeft'); step(1 / 60); keyDown('ShiftLeft');
+    let tac = false, peak = 0;
+    frames(40, (s) => { if (s.tactical > 0) tac = true; peak = Math.max(peak, Math.hypot(s.vx, s.vz)); });
+    record('Tactical sprint burst', { tactical: tac, faster: peak > sprintSpeed * 1.15 },
+      { sprint: +sprintSpeed.toFixed(2), burst: +peak.toFixed(2) });
+    release({ keys: ['W', 'Shift'] });
+  }
+
+  // the acceptance check: slide into cover, lean out, fire, duck back
+  if (sq) {
+    const cx = sq.x - 10, cz = sq.z - 12;      // the same planter as cover
+    reset(cx, cz + 12, 0);
+    // (no mouse look during the run-up: it would steer the sprint off line)
+    press({ keys: ['W', 'Shift'] });
+    frames(60, null, true);                    // sprint at the planter
+    press({ keys: ['Ctrl'] });                 // slide in
+    let slid = false;
+    frames(45, (s) => { if (s.slideT > 0) slid = true; }, true);
+    release({ keys: ['W', 'Shift'] });
+    frames(10, null, true);
+    const behind = P.state.z > cz && P.state.z - cz < 4 && P.state.crouch > 0.8;
+    const shots0 = W.shotsFired;
+    let leaned = 0;
+    press({ keys: ['E'], buttons: [2, 0] });   // lean out, aim, fire
+    frames(40, (s) => { leaned = Math.max(leaned, s.lean); });
+    const fired = W.shotsFired > shots0;
+    release({ keys: ['E'], buttons: [2, 0] }); // duck back
+    frames(25);
+    record('Slide into cover, lean out, fire, duck back', { slide: slid, inCover: behind, lean: leaned > 0.8, fire: fired,
+      duckedBack: Math.abs(P.state.lean) < 0.1 && P.state.crouch > 0.8 }, { endZ: +(P.state.z - cz).toFixed(2) });
+    release({ keys: ['Ctrl'] });
+  }
+  input.releaseAll();
+  frames(5);
 }

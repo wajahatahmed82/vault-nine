@@ -213,7 +213,8 @@ export class Enemy {
       if (inCone && !this.alerted) {
         // Closer, upright and moving all make the player easier to notice.
         const near = 1 - Math.min(1, dist / this.spec.sightRange);
-        const crouched = p.crouch > 0.5 ? 0.45 : 1;
+        // crouching halves how fast you are noticed; lying flat quarters it
+        const crouched = p.prone > 0.5 ? 0.22 : p.crouch > 0.5 ? 0.45 : 1;
         const moving = Math.hypot(p.vx || 0, p.vz || 0) > 2.2 ? 1.35 : 1;
         this.awareness += dt * (0.55 + near * 1.5) * crouched * moving * this.diff.awareness;
         if (this.awareness >= 1) {

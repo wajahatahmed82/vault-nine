@@ -135,6 +135,13 @@ FLANK: lost contact 1.2-5s -> approach from ~60-110 deg off the last known
 position instead of down the same corridor.
 Kill alerts squad within 20m (soft), a non-lethal hit within 12m.
 
+## Movement
+
+`src/player.js` (`MOVE` constants): slide (crouch edge while sprinting; momentum decays over 0.85 s, camera tilt), tactical sprint (second Shift press within 350 ms, buffered 0.45 s because the double-tap drops the sprint for a frame; 2.6 s burst, 7 s cooldown), prone (Z toggle; jump or sprint stands up; eye 0.42 m), lean (Q/E; camera and aim move 0.42 m sideways, backs off against walls; `state.leanX/leanZ` are what AI sight aims at), mantle/vault on jump at 0.45-1.3 m cover (`_tryMantle`: vault when the obstacle is under 1.1 m deep and the far side is lower). Interact moved to F. Weapon spread takes a `stance` multiplier (prone 0.55, crouch 0.85, slide 1.6). Footsteps by surface via `Game.surfaceUnder()` / `town.groundKind()`.
+
+- **A Shift double-tap is not a sprint for a frame.** Without the buffer the tactical request landed on a non-sprinting frame and was dropped.
+- **Synthetic Shift presses in one test run count as double-taps.** inputstress resets `input.lastShift` per case.
+
 ## Gunfeel
 
 `src/recoil.js` patterns, `src/decals.js` surface-matched impacts (one InstancedMesh per surface, pool 96). Scope sway on the marksman rifle; Shift while scoped holds breath (~4.5s, then a tired penalty). Sprint-to-fire delay per weapon (`sprintToFire` in config). Inspect on I. Empty reload racks the bolt; tactical skips it.
@@ -153,7 +160,7 @@ Android: Capacitor 8 (`capacitor.config.json`, `android/`), app id `com.wajahata
 
 Every action independent latched boolean in `src/input.js`, built from three OR'd sources (keyboard, mouse buttons, on-screen buttons). One-shot actions go through edge queue drained once per frame. Nothing in input ever cancels unrelated action.
 
-`tools/inputstress.js` dispatches real KeyboardEvent/MouseEvent objects at listeners, asserts 13 simultaneous-input combinations. Run after any input change:
+`tools/inputstress.js` dispatches real KeyboardEvent/MouseEvent objects at listeners, asserts 13 simultaneous-input combinations plus the movement set (slide + fire, lean + aim + fire, mantle while reloading, prone, tactical sprint, slide-into-cover-lean-fire-duck). Run after any input change:
 
     const t = await import('/tools/inputstress.js'); t.run(__rs)
 

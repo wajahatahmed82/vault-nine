@@ -151,10 +151,35 @@ export const sfx = {
     noise({ dur: 0.05, vol: 0.20, type: 'highpass', f0: 2200, q: 1.2 });
     tone({ type: 'square', f0: 520, f1: 780, dur: 0.06, vol: 0.10, delay: 0.16 });
   },
-  footstep(sprint) {
-    const v = sprint ? 0.14 : 0.09;
-    noise({ dur: 0.07, vol: v, type: 'lowpass', f0: 1100, f1: 240, q: 1.1 });
-    noise({ dur: 0.04, vol: v * 0.5, type: 'highpass', f0: 2800, q: 0.8 });
+  // Footsteps by what is underfoot. `stance` quietens crouched and crawling
+  // steps; `wet` adds a splash on top of whatever the surface is.
+  footstep(sprint, surface = 'concrete', stance = 'walk', wet = false) {
+    const v = (sprint ? 0.14 : 0.09) * (stance === 'crouch' ? 0.5 : stance === 'crawl' ? 0.3 : 1);
+    if (stance === 'crawl') {
+      noise({ dur: 0.22, vol: v * 0.9, type: 'bandpass', f0: 700, f1: 400, q: 0.7 });
+    } else if (surface === 'grass') {
+      noise({ dur: 0.13, vol: v * 0.8, type: 'bandpass', f0: 900, f1: 500, q: 0.6 });
+      noise({ dur: 0.05, vol: v * 0.25, type: 'highpass', f0: 3500, q: 0.6 });
+    } else if (surface === 'gravel') {
+      for (let i = 0; i < 4; i++) noise({ dur: 0.03 + Math.random() * 0.03, vol: v * 0.55, type: 'bandpass', f0: 1800 + Math.random() * 1800, f1: 1200, q: 2.2, delay: i * 0.018 });
+    } else if (surface === 'wood') {
+      tone({ type: 'triangle', f0: 190, f1: 120, dur: 0.07, vol: v * 0.9 });
+      noise({ dur: 0.05, vol: v * 0.5, type: 'lowpass', f0: 900, f1: 300, q: 1.2 });
+    } else if (surface === 'metal') {
+      tone({ type: 'square', f0: 430, f1: 380, dur: 0.12, vol: v * 0.22 });
+      noise({ dur: 0.06, vol: v * 0.6, type: 'highpass', f0: 2400, q: 1.5 });
+    } else {
+      // concrete, asphalt, paving: a dull thump and a crisp scuff
+      const bright = surface === 'paving' ? 1.25 : surface === 'asphalt' ? 0.85 : 1;
+      noise({ dur: 0.07, vol: v, type: 'lowpass', f0: 1100 * bright, f1: 240, q: 1.1 });
+      noise({ dur: 0.04, vol: v * 0.5, type: 'highpass', f0: 2800 * bright, q: 0.8 });
+    }
+    if (wet && stance !== 'crawl') noise({ dur: 0.09, vol: v * 0.7, type: 'highpass', f0: 2200, f1: 1200, q: 0.9, delay: 0.01 });
+  },
+  slide() { noise({ dur: 0.55, vol: 0.12, type: 'bandpass', f0: 1200, f1: 500, q: 0.6 }); },
+  mantle() {
+    noise({ dur: 0.12, vol: 0.1, type: 'lowpass', f0: 900, f1: 300, q: 1 });
+    noise({ dur: 0.18, vol: 0.06, type: 'bandpass', f0: 1500, f1: 800, q: 0.8, delay: 0.12 });
   },
   jump() { noise({ dur: 0.05, vol: 0.09, type: 'lowpass', f0: 900, f1: 300, q: 1 }); },
   land() {

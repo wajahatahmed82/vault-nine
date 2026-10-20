@@ -689,6 +689,26 @@ export function buildTown(scene, mats) {
       return null;
     },
     byTag(tag) { return buildings.find((b) => b.tag === tag); },
+    // What the ground is made of at (x, z), for footstep sounds.
+    groundKind(x, z, y) {
+      if (y !== undefined && this.indoorAt(x, z, y)) return 'wood';
+      const l = lotGrid.get(Math.floor(x / LOTCELL) * 10007 + Math.floor(z / LOTCELL));
+      const blk = l && l.find((b) => x >= b.x1 && x <= b.x2 && z >= b.z1 && z <= b.z2);
+      if (blk) {
+        const p = blk.pave;
+        if ((p.w && x < blk.x1 + p.w) || (p.e && x > blk.x2 - p.e) || (p.n && z < blk.z1 + p.n) || (p.s && z > blk.z2 - p.s)) return 'paving';
+        if (blk.paved === GROUND.gravel) return 'gravel';
+        if (blk.paved === GROUND.concrete || blk.kind === 'industrial' || blk.kind === 'heavy') return 'concrete';
+        if (blk.paved !== undefined || ['main', 'police', 'petrol'].includes(blk.kind)) return 'paving';
+        return 'grass';
+      }
+      if (x > SHELF.minX && x < SHELF.maxX && z > SHELF.minZ && z < SHELF.maxZ) return 'asphalt';
+      for (const s of STREETS) {
+        const hw = s.road / 2 + 0.3;
+        if (s.axis === 'z' ? Math.abs(x - s.at) < hw && z >= s.from && z <= s.to : Math.abs(z - s.at) < hw && x >= s.from && x <= s.to) return 'asphalt';
+      }
+      return 'grass';
+    },
     // world position of a building-local point at floor height
     local(b, lx, lz, ly = 0) {
       const cs = Math.cos(b.rot), sn = Math.sin(b.rot);

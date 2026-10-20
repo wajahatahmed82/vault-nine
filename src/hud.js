@@ -95,6 +95,11 @@ export class HUD {
     input.bindTap($('btn-interact'), () => { this.input.queue.interact++; });
     input.bindHold($('btn-breath'), 'sprint');      // sprint while scoped = hold breath
     input.bindTap($('btn-inspect'), () => { this.input.queue.inspect++; });
+    input.bindHold($('btn-leanl'), 'leanL');
+    input.bindHold($('btn-leanr'), 'leanR');
+    input.bindTap($('btn-prone'), () => { this.input.queue.prone++; });
+    input.bindTap($('btn-tac'), () => { this.input.queue.tactical++; });
+    this.tacBtn = $('btn-tac');
     this.useBtn = $('btn-interact');
     this.breathBtn = $('btn-breath');
 
@@ -212,6 +217,10 @@ export class HUD {
   // ---------------- per-frame ----------------
 
   update(dt) {
+    if (this.tacBtn) {
+      const ps = this.game.player.state;
+      this.tacBtn.classList.toggle('show', ps.sprinting && ps.tactical <= 0 && ps.tacCool <= 0);
+    }
     if (this.breathBtn) {
       const w = this.game.weapons;
       this.breathBtn.classList.toggle('show', w.current === 'sniper' && w.ads > 0.6);
@@ -386,8 +395,8 @@ export class HUD {
           <button class="btn" data-a="settings">Settings</button>
         </div>
         <div class="hint">
-          <b>WASD</b> move &middot; <b>Shift</b> sprint &middot; <b>Ctrl</b> crouch &middot; <b>Space</b> jump<br>
-          <b>Mouse</b> aim &middot; <b>RMB</b> sights &middot; <b>R</b> reload &middot; <b>1-4</b> weapons &middot; <b>Esc</b> pause<br>
+          <b>WASD</b> move &middot; <b>Shift</b> sprint (twice: dash) &middot; <b>Ctrl</b> crouch / slide &middot; <b>Z</b> prone &middot; <b>Space</b> jump / vault<br>
+          <b>Q E</b> lean &middot; <b>F</b> use &middot; <b>Mouse</b> aim &middot; <b>RMB</b> sights &middot; <b>R</b> reload &middot; <b>1-4</b> weapons &middot; <b>Esc</b> pause<br>
           On phone: left thumb moves, right thumb aims, buttons bottom-right.
         </div>
       </div>`);

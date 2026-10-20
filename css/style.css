@@ -132,6 +132,13 @@ body{
 #btn-jump{right:calc(env(safe-area-inset-right) + 168px);bottom:calc(env(safe-area-inset-bottom) + 44px)}
 #btn-crouch{right:calc(env(safe-area-inset-right) + 168px);bottom:calc(env(safe-area-inset-bottom) + 104px)}
 #btn-swap{right:calc(env(safe-area-inset-right) + 22px);bottom:calc(env(safe-area-inset-bottom) + 114px)}
+/* lean pads sit above SWAP, prone above CRCH; DASH appears only mid-sprint */
+.pad.small.lean{width:44px;height:44px;font-size:13px;letter-spacing:0}
+#btn-leanl{right:calc(env(safe-area-inset-right) + 74px);bottom:calc(env(safe-area-inset-bottom) + 176px)}
+#btn-leanr{right:calc(env(safe-area-inset-right) + 22px);bottom:calc(env(safe-area-inset-bottom) + 176px)}
+#btn-prone{right:calc(env(safe-area-inset-right) + 168px);bottom:calc(env(safe-area-inset-bottom) + 164px)}
+#btn-tac{right:calc(env(safe-area-inset-right) + 232px);bottom:calc(env(safe-area-inset-bottom) + 146px);
+  background:rgba(255,196,80,.28);border-color:rgba(255,200,90,.8)}
 .pad.tiny{width:38px;height:38px;font-size:12px;
   right:calc(env(safe-area-inset-right) + 16px);top:calc(env(safe-area-inset-top) + 52px);
   bottom:auto;letter-spacing:0}
@@ -140,7 +147,7 @@ body{
    top of the canvas, where they swallow clicks meant for the game. The pause
    pad stays because it is the only way back to the menu without Escape. */
 @media (hover: hover) and (pointer: fine) {
-  #btn-fire,#btn-ads,#btn-crouch,#btn-jump,#btn-reload,#btn-swap{display:none}
+  #btn-fire,#btn-ads,#btn-crouch,#btn-jump,#btn-reload,#btn-swap,#btn-leanl,#btn-leanr,#btn-prone,#btn-tac{display:none}
 }
 
 #stick{position:absolute;width:0;height:0;opacity:0;transition:opacity .12s}

@@ -31,13 +31,16 @@ const KEYMAP = {
   sprint: ['ShiftLeft', 'ShiftRight'],
   crouch: ['ControlLeft', 'ControlRight', 'KeyC'],
   fire: ['Space'],
-  interact: ['KeyE'],
+  // Q/E lean; interact moved to F to make room for them
+  interact: ['KeyF'],
+  leanL: ['KeyQ'],
+  leanR: ['KeyE'],
 };
 
 // mouse button index -> action
 const MOUSEMAP = { 0: 'fire', 2: 'aim' };
 
-const HELD_ACTIONS = ['forward', 'back', 'left', 'right', 'sprint', 'crouch', 'fire', 'aim', 'interact'];
+const HELD_ACTIONS = ['forward', 'back', 'left', 'right', 'sprint', 'crouch', 'fire', 'aim', 'interact', 'leanL', 'leanR'];
 
 export class Input {
   constructor(canvas) {
@@ -56,7 +59,8 @@ export class Input {
     // --- one-shot edge queue ---
     // `interact` is queued as well as held: a tap shorter than one frame
     // presses and releases between samples, and a held-only flag never sees it.
-    this.queue = { jump: 0, reload: 0, pause: 0, inspect: 0, interact: 0, switchTo: null };
+    this.queue = { jump: 0, reload: 0, pause: 0, inspect: 0, interact: 0, prone: 0, tactical: 0, switchTo: null };
+    this.lastShift = -1;
 
     // --- look / stick ---
     this.dx = 0; this.dy = 0;
@@ -121,7 +125,14 @@ export class Input {
       if (e.code === 'Space') this.queue.jump++;
       if (e.code === 'KeyR') this.queue.reload++;
       if (e.code === 'KeyI') this.queue.inspect++;
-      if (e.code === 'KeyE') this.queue.interact++;
+      if (e.code === 'KeyF') this.queue.interact++;
+      if (e.code === 'KeyZ') this.queue.prone++;
+      // a second Shift press within 0.35 s is the tactical sprint
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        const now = performance.now();
+        if (now - this.lastShift < 350) this.queue.tactical++;
+        this.lastShift = now;
+      }
       if (e.code === 'Digit1') this.queue.switchTo = 'rifle';
       if (e.code === 'Digit2') this.queue.switchTo = 'smg';
       if (e.code === 'Digit3') this.queue.switchTo = 'shotgun';
@@ -316,6 +327,9 @@ export class Input {
       sprint,
       crouch: this.held.crouch,
       interact: this.held.interact || this.queue.interact > 0,
+      lean: (this.held.leanR ? 1 : 0) - (this.held.leanL ? 1 : 0),
+      prone: this.queue.prone > 0,
+      tactical: this.queue.tactical > 0,
       jump: this.queue.jump > 0,
       reload: this.queue.reload > 0,
       inspect: this.queue.inspect > 0,
@@ -329,6 +343,8 @@ export class Input {
     this.queue.pause = 0;
     this.queue.inspect = 0;
     this.queue.interact = 0;
+    this.queue.prone = 0;
+    this.queue.tactical = 0;
     this.queue.switchTo = null;
     return r;
   }

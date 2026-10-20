@@ -184,7 +184,7 @@ export class WeaponSystem {
     const base = THREE.MathUtils.lerp(s.spreadHip, s.spreadAds, this.ads);
     const air = this.airborne ? 2.4 : 1;
     return Math.max(base, this.spread * THREE.MathUtils.lerp(1, 0.18, this.ads))
-      * (1 + this.moveAmount * s.moveSpreadMul) * air;
+      * (1 + this.moveAmount * s.moveSpreadMul) * air * (this.stance || 1);
   }
 
   // Upgrades are multipliers held by the progression system.
@@ -263,6 +263,7 @@ export class WeaponSystem {
       this.sprinting = !!state.sprinting;
       this.airborne = !!state.airborne;
       this.breathHeld = !!state.holdBreath;
+      this.stance = state.stance || 1;
     }
   }
 
@@ -357,7 +358,8 @@ export class WeaponSystem {
 
     const acc = this.up('accuracy');
     const base = THREE.MathUtils.lerp(s.spreadHip, s.spreadAds, this.ads) / acc;
-    const movePenalty = (1 + this.moveAmount * s.moveSpreadMul) * (this.airborne ? 2.4 : 1);
+    // prone steadies the shot, a slide throws it about
+    const movePenalty = (1 + this.moveAmount * s.moveSpreadMul) * (this.airborne ? 2.4 : 1) * (this.stance || 1);
     const cone = Math.max(base, this.spread * THREE.MathUtils.lerp(1, 0.18, this.ads) / acc) * movePenalty;
 
     const fwd = new THREE.Vector3();
