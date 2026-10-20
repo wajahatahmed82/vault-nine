@@ -55,6 +55,8 @@ export class Gear {
         s.position.y = 0.055; g.add(s); const lv = box(0.015, 0.06, 0.02, 0x8a8a84); lv.position.set(0.03, 0.1, 0); g.add(lv); return g; },
       smoke: () => { const g = new THREE.Group(); const c = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.13, 10), new THREE.MeshStandardMaterial({ color: 0x8c8f92, roughness: 0.6 }));
         c.position.y = 0.065; g.add(c); return g; },
+      flash: () => { const g = new THREE.Group(); const c = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.12, 10), new THREE.MeshStandardMaterial({ color: 0x9db3c2, roughness: 0.4, metalness: 0.4 }));
+        c.position.y = 0.06; g.add(c); return g; },
       attachment: () => { const g = new THREE.Group(); const b = box(0.16, 0.06, 0.08, 0x23262a); b.position.y = 0.03; g.add(b);
         const t = box(0.17, 0.012, 0.02, 0xc9a227); t.position.y = 0.062; g.add(t); return g; },
       weapon: (id) => {
@@ -155,6 +157,7 @@ export class Gear {
       case 'medkit': if (C.meds >= G2.maxMeds) return false; C.meds++; msg = '+1 MEDKIT'; break;
       case 'frag': if (C.frags >= G2.maxFrags) return false; C.frags++; msg = '+1 FRAG GRENADE'; break;
       case 'smoke': if (C.smokes >= G2.maxSmokes) return false; C.smokes++; msg = '+1 SMOKE GRENADE'; break;
+      case 'flash': if ((C.flashes || 0) >= G2.maxFlashes) return false; C.flashes = (C.flashes || 0) + 1; msg = '+1 FLASHBANG'; break;
       case 'attachment': {
         const key = it.id, spec = CFG.attachments[key];
         // mount on the weapon in hand if it fits and the slot is free, else

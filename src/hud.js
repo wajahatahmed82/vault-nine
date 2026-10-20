@@ -294,6 +294,13 @@ export class HUD {
       this.cross.style.opacity = (1 - w.ads * 0.95).toFixed(2);
       $('scope').classList.toggle('on', w.ads > 0.75 && w.scoped);
       this.combat.classList.toggle('nohud', !settings.get('showHud'));
+      this.combat.classList.toggle('driving', !!(g.vehicle && g.vehicle.driving));
+      // a countdown objective shows its clock in the hint line
+      const cp = g.campaign;
+      if (g.mode === MODE.CAMPAIGN && cp.timer > 0) {
+        const t = 'CHARGE ' + Math.ceil(cp.timer) + ' s';
+        if (this.objHint.textContent !== t) this.objHint.textContent = t;
+      }
       if (settings.get('showHud')) this.minimap.update(dt);
       this.gearHud(w, dt);
 
@@ -470,7 +477,11 @@ export class HUD {
 
         <div class="modes">
           <button class="mode" data-a="play-campaign">
-            <b>CAMPAIGN — THE SIGNAL</b><span>Meridian Ridge Research Station. Find out what happened.</span>
+            <b>MISSION 1 — THE SIGNAL</b><span>Meridian Ridge Research Station. Find out what happened.</span>
+            <i>DIFFICULTY ${(this.difficulty || 'normal').toUpperCase()}</i>
+          </button>
+          <button class="mode" data-a="play-m2">
+            <b>MISSION 2 — DEAD GROUND</b><span>The whole town, at night. Patrols, rooftops, a jammer to bring down.</span>
             <i>DIFFICULTY ${(this.difficulty || 'normal').toUpperCase()}</i>
           </button>
           <div class="row diffrow">
@@ -644,7 +655,7 @@ export class HUD {
     return this.el(`
       <div class="panel wide fade">
         <div class="dead" style="color:var(--teal)">MISSION COMPLETE</div>
-        <div class="sub">THE SIGNAL &middot; ${(g.difficulty || 'normal').toUpperCase()}</div>
+        <div class="sub">${g.campaign.mission === 2 ? 'DEAD GROUND' : 'THE SIGNAL'} &middot; ${(g.difficulty || 'normal').toUpperCase()}</div>
         <div class="grid4">
           <div class="stat"><div class="k">Time</div><div class="v">${clock(S.time || 0)}</div></div>
           <div class="stat"><div class="k">Kills</div><div class="v">${g.kills}</div></div>
@@ -761,9 +772,11 @@ export class HUD {
         audio.sfx[a === 'back' || a === 'quit' ? 'uiBack' : 'ui']();
         switch (a) {
           case 'play-campaign':
+          case 'play-m2':
             goFullscreen();
             this.panel = 'main';
             g.difficulty = this.difficulty || 'normal';
+            g.campaignFrom = a === 'play-m2' ? 'm2' : 'town';
             g.start(MODE.CAMPAIGN); audio.startAmbience(); break;
           case 'diff-easy': this.difficulty = 'easy'; this.go('main'); break;
           case 'diff-normal': this.difficulty = 'normal'; this.go('main'); break;

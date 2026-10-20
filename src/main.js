@@ -140,7 +140,7 @@ settings.onChange((k) => {
   if (k === null || ['quality', 'shadowQuality', 'renderScale', 'effects', 'viewDistance', 'postFx', 'ao'].includes(k)) {
     applyQuality();
   }
-  if (k === null || k === 'timeOfDay') { game.atmos.setTime(settings.get('timeOfDay')); game.post.setGrade(settings.get('timeOfDay')); }
+  if (k === null || k === 'timeOfDay') game._setTime(settings.get('timeOfDay'));
   if (k === null || k === 'weather') {
     game.atmos.setWeather(settings.get('weather'));
     game.life.setRain(settings.get('weather') === 'rain');

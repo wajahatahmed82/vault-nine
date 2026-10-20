@@ -453,3 +453,34 @@ export function deafen(amount, seconds) {
   o.connect(g); g.connect(master);
   o.start(t); o.stop(t + seconds + 0.05);
 }
+
+// The truck's engine: two detuned saws through a lowpass, pitch and filter
+// following speed and throttle.
+let eng = null;
+export const engine = {
+  start() {
+    if (!ready || eng) return;
+    const o1 = ctx.createOscillator(), o2 = ctx.createOscillator();
+    o1.type = 'sawtooth'; o2.type = 'sawtooth';
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 300; f.Q.value = 2;
+    const g = ctx.createGain(); g.gain.value = 0;
+    o1.connect(f); o2.connect(f); f.connect(g); g.connect(sfxBus);
+    o1.start(); o2.start();
+    g.gain.setTargetAtTime(0.07, ctx.currentTime, 0.2);
+    eng = { o1, o2, f, g };
+    this.set(0, 0);
+  },
+  set(speed01, throttle01) {
+    if (!eng) return;
+    const t = ctx.currentTime, hz = 34 + speed01 * 70 + throttle01 * 14;
+    eng.o1.frequency.setTargetAtTime(hz, t, 0.08);
+    eng.o2.frequency.setTargetAtTime(hz * 1.51, t, 0.08);
+    eng.f.frequency.setTargetAtTime(260 + speed01 * 900 + throttle01 * 500, t, 0.08);
+  },
+  stop() {
+    if (!eng) return;
+    const e = eng; eng = null;
+    e.g.gain.setTargetAtTime(0, ctx.currentTime, 0.15);
+    setTimeout(() => { try { e.o1.stop(); e.o2.stop(); } catch (err) { /* gone */ } }, 900);
+  },
+};

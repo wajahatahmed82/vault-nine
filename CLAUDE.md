@@ -184,6 +184,20 @@ AO: depth-only SSAO in `post.applyAO`, called by `Game.renderScene` between the 
 - **Audio-log tests must use `seq`, not indices** -- the log is a ring.
 - **Test scenes need open ground.** Main Street has parked cars along both kerbs that block soldiers' sight; the Ridge Road / Main Street junction (0, 110) is open on four sides.
 
+## Mission 2 and the truck (Phase 5)
+
+`Campaign` holds two stage lists: `m1` (town prologue + station) and `m2` from `_mission2()`; `start(diff, 'm2')` picks mission 2 (`game.campaignFrom = 'm2'`). Mission 2 forces night via `game._setTime` (not the setting). Stage extras: `mark`, `tick(dt)` (the hold's countdown, shown in the objective hint), `opts.target` (marksmen), `opts.persist` (standing patrols, kept across objectives and respawned on a checkpoint reload). Props (junction boxes, jammer) go through `_prop` / `_clearProps`.
+
+`src/vehicle.js`: one pickup truck, mission 2 only, placed at (0, 27) in line with the south gate. Footprint sampled at eight points against `game.blockedAt`; terrain-following; orbit camera via `placeDriverAndCamera()` after `weapons.update`. While driving, `Game.update` zeroes the on-foot inputs; Space is the held `fire` action in the input layer, so that is the brake. Half damage to the driver; run-overs kill above 5 m/s.
+
+    const t = await import('/tools/mission2test.js'); t.run(__rs)   // 11 checks
+    const v = await import('/tools/vehicletest.js');  v.run(__rs)   // 8 checks
+    const w = await import('/tools/walktest.js');     w.run(__rs, { route: 'mission2' })
+
+- **Checkpoint restore used to double the stage's soldiers.** `restore()` calls the stage's `enter()` (for its interactables), which also spawns; those are now removed before the checkpoint's own list is respawned.
+- **Main Street has a burning car at z 206 and the roadblock at z 302 in the middle of the road.** Routes go round them (x -2.5 past the car, the east pavement x 8.2 past the roadblock).
+- **Patrols pause at each end of their beat** -- give movement checks ten seconds, not three.
+
 ## Mobile and Android
 
 Touch: contextual USE (`#btn-interact`, label = first word of the prompt, red LOCKED when keycard too low), BREATH when scoped, inspect, turn-sideways card in portrait, fullscreen + landscape lock from the start tap. `tools/mobiletest.js` (11 checks) includes a press-and-release with no frame between.

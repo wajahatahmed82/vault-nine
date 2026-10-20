@@ -55,6 +55,33 @@ const ROUTE = [
   ['loading bay',         18, -56, 0],
 ];
 
+// Mission 2, DEAD GROUND: the street route between its objectives (the
+// building interiors are covered by tools/mission2test.js).
+const M2_ROUTE = [
+  ['station shelf',       0, 30, 0],
+  ['south gate',          0, 44, 0],
+  ['ridge junction',      0, 108, null],
+  ['pharmacy front',      8, 122, null],
+  ['ridge road west',  -150, 108, null],
+  ['box west',         -155, 105.5, null],
+  ['west 2 street',    -100, 110, null],
+  ['terraces corner',  -100, 222, null],
+  ['box terraces',      -97, 227.5, null],
+  ['back to street 220', -100, 220, null],
+  ['street 220 east',   100, 220, null],
+  ['box east',          105, 224.5, null],
+  ['east 3 at 220',     150, 220, null],
+  ['jammer yard',       147.2, 150, null],
+  ['ridge road east',   150, 112, null],
+  ['petrol forecourt',  -10, 112, null],
+  ['main street',         0, 194, null],
+  ['past the burning car', -2.5, 214, null],
+  ['main south',          0, 286, null],
+  ['east pavement',     8.2, 288, null],
+  ['roadblock pavement', 8.2, 316, null],
+  ['pickup',              5, 318.5, null],
+];
+
 // The town: out of the station's south gate, down Station Road and through
 // every district. Expected heights are read from the ground itself (null).
 const TOWN_ROUTE = [
@@ -82,7 +109,7 @@ const TOWN_ROUTE = [
 
 export function run(rs, opts = {}) {
   const { game, step, MODE } = rs;
-  const maxSeconds = opts.maxSeconds || (opts.route === 'town' ? 90 : 26);
+  const maxSeconds = opts.maxSeconds || (opts.route === 'town' || opts.route === 'mission2' ? 90 : 26);
   game.start(MODE.SURVIVAL);
   game.player.state.health = 1e9;
   // This test is about whether the level connects, not about locks, so open the
@@ -95,7 +122,7 @@ export function run(rs, opts = {}) {
   for (const r of game.robots) game.scene.remove(r.root);
   game.robots.length = 0;
 
-  const route = opts.route === 'town' ? TOWN_ROUTE : ROUTE;
+  const route = opts.route === 'town' ? TOWN_ROUTE : opts.route === 'mission2' ? M2_ROUTE : ROUTE;
   const p = game.player.state;
   p.x = route[0][1]; p.z = route[0][2]; p.y = 0; p.vx = p.vz = p.vy = 0;
 

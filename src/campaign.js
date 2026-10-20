@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as audio from './audio.js';
 import { CFG, DIFFICULTY } from './config.js';
 import { Robot } from './enemies.js';
 import { Interactables } from './interact.js';
@@ -124,6 +125,60 @@ const STORY = {
       'Get to the loading bay.',
     ],
   },
+  m2intro: {
+    title: 'DEAD GROUND',
+    lines: [
+      'Night. The drive is in your pocket and nobody came for it.',
+      'Whoever took the station is still in the town below, and they are listening.',
+      'A courier left something for you in the pharmacy on Main Street.',
+    ],
+  },
+  m2drop: {
+    title: 'DEAD DROP',
+    lines: [
+      'A note under the till: "They talk on field phones. Cut the lines and they go deaf."',
+      'Three junction boxes: Ridge Road west, the terraces, and east of the square.',
+    ],
+  },
+  m2boxes: {
+    title: 'LINES CUT',
+    lines: [
+      'The patrols have gone quiet on the wire.',
+      'Their marksmen still hold the rooftops over the square.',
+    ],
+  },
+  m2marks: {
+    title: 'ROOFTOPS CLEAR',
+    lines: [
+      'With the roofs clear you can see a lit mast in the warehouse yard to the east.',
+      'A jammer. While it runs, nothing you send gets out.',
+    ],
+  },
+  m2charge: {
+    title: 'CHARGE SET',
+    lines: ['Seventy-five seconds. They heard you set it.'],
+  },
+  m2blown: {
+    title: 'JAMMER DOWN',
+    lines: [
+      'The mast folds into the yard.',
+      'The convoy manifest should be in the petrol station office -- they used it as a checkpoint.',
+    ],
+  },
+  m2manifest: {
+    title: 'CONVOY MANIFEST',
+    lines: [
+      'Four trucks, one name on every page: yours.',
+      'There is a pickup at the south roadblock. Get there.',
+    ],
+  },
+  m2end: {
+    title: 'PICKUP',
+    lines: [
+      'Headlights on the south road, two flashes, then dark.',
+      'You climb in. Nobody asks what is on the drive.',
+    ],
+  },
   end: {
     title: 'EXTRACTION',
     lines: [
@@ -145,6 +200,9 @@ export class Campaign {
     this.doors = [];
     this.checkpoint = null;
     this.stageEnemies = [];
+    this.persist = [];
+    this.mission = 1;
+    this.timer = 0;
     this.flags = {};
     this.onObjective = () => {};
     this.onLog = () => {};
@@ -431,6 +489,8 @@ export class Campaign {
     ];
     this.stationStart = this.prologue.length;
     this.stages = this.prologue.concat(this.stages);
+    this.m1 = this.stages;
+    this.m2 = T ? this._mission2(T, tagged, itemAt) : [];
   }
 
   _door(x, y, z, w, axis, baseY) {
@@ -489,6 +549,235 @@ export class Campaign {
            Math.abs(p.y - a.y) < 2.0;
   }
 
+  // Props that belong to mission 2 (junction boxes, the jammer).
+  _prop(mesh) { (this.props || (this.props = [])).push(mesh); this.game.scene.add(mesh); return mesh; }
+  _clearProps() { for (const m of this.props || []) this.game.scene.remove(m); this.props = []; }
+
+  // Mission 2, DEAD GROUND: the whole town at night with standing patrols.
+  // Eight objectives spread over about 1.3 km of streets.
+  _mission2(T, tagged, itemAt) {
+    const g = this.game;
+    const H = (x, z) => g.surfaceH(x, z);
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const BOXES = [
+      { id: 'boxW', x: -156, z: 104 },
+      { id: 'boxNW', x: -96, z: 229 },
+      { id: 'boxE', x: 106, z: 226 },
+    ];
+    const JAM = { x: 146, z: 150 };
+    const boxMesh = (x, z) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.2, 0.45), new THREE.MeshStandardMaterial({ color: 0x55605a, roughness: 0.7, metalness: 0.3 }));
+      m.position.set(x, H(x, z) + 0.6, z); m.castShadow = true;
+      return this._prop(m);
+    };
+    const jammerMesh = () => {
+      const grp = new THREE.Group();
+      const base = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 1.0), new THREE.MeshStandardMaterial({ color: 0x3a4036 }));
+      base.position.y = 0.5;
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 6, 6), new THREE.MeshStandardMaterial({ color: 0x8a8f94, metalness: 0.6 }));
+      mast.position.y = 4;
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2a1a }));
+      lamp.position.y = 7.05;
+      grp.add(base, mast, lamp);
+      grp.position.set(JAM.x, H(JAM.x, JAM.z), JAM.z);
+      grp.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      return this._prop(grp);
+    };
+    const roofGuy = (b, dx = 0, dz = 0) => {
+      if (!b) return null;
+      const e = this._spawn('sniper', b.x + dx, b.z + dz, { target: true, yaw: Math.atan2(0 - (b.x + dx), 150 - (b.z + dz)), post: true });
+      e.root.position.y = b.base + b.H + 0.7;
+      this.stageEnemies[this.stageEnemies.length - 1].y = e.root.position.y;
+      return e;
+    };
+    const flatRoof = (x, z) => T.buildings.find((b) => b.roof === 'flat' && !b.enter && Math.hypot(b.x - x, b.z - z) < 6);
+
+    return [
+      {
+        id: 'm2road',
+        text: 'Get off the station shelf',
+        hint: 'Down Station Road to the Ridge Road junction',
+        mark: () => ({ x: 0, y: H(0, 108), z: 108 }),
+        enter: () => {
+          this.onLog(STORY.m2intro);
+          // the standing patrols: two-man pairs walking the main streets
+          const P = (type, route) => this._spawn(type, route[0][0], route[0][1], { route, persist: true });
+          P('assault', [[-145, 110], [-60, 110], [-145, 110]]);
+          P('assault', [[60, 110], [140, 110], [60, 110]]);
+          P('scout', [[50, 125], [50, 270], [50, 125]]);
+          P('assault', [[-50, 270], [-50, 125], [-50, 270]]);
+          P('assault', [[-95, 220], [95, 220], [-95, 220]]);
+          P('elite', [[100, 275], [-100, 275], [100, 275]]);
+          P('scout', [[150, 180], [150, 300], [150, 180]]);
+          P('assault', [[-150, 160], [-150, 300], [-150, 160]]);
+          // and the road down from the station
+          this._spawn('assault', 2, 70, { route: [[2, 70], [2, 100], [2, 70]] });
+          this._spawn('scout', -6, 96, { yaw: Math.PI, post: true });
+        },
+        done: () => { const p = g.player.state; return p.z > 103 && Math.abs(p.x) < 12; },
+      },
+      {
+        id: 'm2drop',
+        text: "Find the courier's dead drop",
+        hint: 'The pharmacy on Main Street',
+        mark: 'deadDrop',
+        enter: () => {
+          this._spawn('assault', 8, 140, { yaw: Math.PI, post: true });
+          this._spawn('assault', 22, 148, { route: [[22, 148], [22, 120], [22, 148]] });
+          this.interact.add({
+            id: 'deadDrop', pos: itemAt(tagged('pharmacy')),
+            prompt: 'Search behind the counter',
+            onUse: () => { this.flags.drop = true; this.onLog(STORY.m2drop); },
+          });
+        },
+        done: () => !!this.flags.drop,
+      },
+      {
+        id: 'm2boxes',
+        text: 'Cut the three field-phone junction boxes',
+        hint: 'Ridge Road west, the terraces, east of the square',
+        mark: () => {
+          const p = g.player.state;
+          let best = null, bd = Infinity;
+          for (const b of BOXES) {
+            const it = this.interact.get(b.id);
+            if (!it || it.used) continue;
+            const d = Math.hypot(b.x - p.x, b.z - p.z);
+            if (d < bd) { bd = d; best = it.pos; }
+          }
+          return best;
+        },
+        enter: () => {
+          for (const b of BOXES) {
+            boxMesh(b.x, b.z);
+            this.interact.add({
+              id: b.id, pos: V(b.x, H(b.x, b.z) + 1.0, b.z),
+              prompt: 'Cut the line',
+              onUse: () => { this.flags[b.id] = true; },
+            });
+          }
+          this._spawn('assault', -150, 118, { yaw: 0, post: true });
+          this._spawn('scout', -96, 240, { route: [[-96, 240], [-120, 240], [-96, 240]] });
+          this._spawn('assault', 112, 232, { yaw: Math.PI, post: true });
+          this._spawn('heavy', 96, 216, { yaw: -Math.PI / 2, post: true });
+        },
+        done: () => {
+          const ok = BOXES.every((b) => this.flags[b.id]);
+          if (ok && !this.flags.boxLog) { this.flags.boxLog = true; this.onLog(STORY.m2boxes); }
+          return ok;
+        },
+      },
+      {
+        id: 'm2marks',
+        text: 'Clear the marksmen over the square',
+        hint: 'Three on the rooftops -- the long rifle reaches them',
+        mark: () => {
+          const t = g.robots.find((r) => r.isTarget && !r.dead);
+          return t ? t.root.position : null;
+        },
+        enter: () => {
+          roofGuy(flatRoof(17, 154));
+          roofGuy(flatRoof(-17, 232));
+          roofGuy(flatRoof(18, 245));
+          this._spawn('assault', 30, 200, { yaw: 0, post: true });
+          this._spawn('assault', 20, 186, { route: [[20, 186], [36, 186], [36, 202], [20, 202], [20, 186]] });
+        },
+        done: () => {
+          const left = g.robots.filter((r) => r.isTarget && !r.dead).length;
+          if (left === 0 && !this.flags.marksLog) { this.flags.marksLog = true; this.onLog(STORY.m2marks); }
+          return left === 0;
+        },
+      },
+      {
+        id: 'm2jammer',
+        text: 'Plant a charge on the jammer',
+        hint: 'The lit mast in the warehouse yard, east',
+        mark: 'jammer',
+        enter: () => {
+          jammerMesh();
+          this._spawn('assault', 140, 142, { yaw: -Math.PI / 2, post: true });
+          this._spawn('scout', 138, 162, { route: [[138, 162], [138, 136], [138, 162]] });
+          this._spawn('elite', 150, 172, { yaw: Math.PI, post: true });
+          this.interact.add({
+            id: 'jammer', pos: V(JAM.x - 0.9, H(JAM.x, JAM.z) + 0.9, JAM.z),
+            prompt: 'Plant charge',
+            onUse: () => { this.flags.charge = true; this.onLog(STORY.m2charge); },
+          });
+        },
+        done: () => !!this.flags.charge,
+      },
+      {
+        id: 'm2hold',
+        text: 'Hold the yard until the charge blows',
+        hint: 'They are coming up the streets',
+        mark: () => JAM,
+        enter: () => {
+          this.timer = 75;
+          this._waveT = 4;
+        },
+        tick: (dt) => {
+          if (this.timer <= 0) return;
+          this.timer -= dt;
+          this._waveT -= dt;
+          if (this._waveT <= 0 && this.timer > 8) {
+            this._waveT = 16;
+            // a pair from the north road and one from Ridge Road
+            const p = g.player.state;
+            const a = this._spawn('assault', 150, 205, { route: [[150, 205], [148, 160]] });
+            const b = this._spawn('scout', 120, 112, { route: [[120, 112], [140, 140]] });
+            const c = this._spawn(Math.random() < 0.5 ? 'elite' : 'assault', 160, 112, { route: [[160, 112], [150, 140]] });
+            for (const e of [a, b, c]) e.alertTo(p.x, p.z, true);
+          }
+          if (this.timer <= 0) {
+            this.timer = 0;
+            this.flags.blown = true;
+            const jp = V(JAM.x, H(JAM.x, JAM.z) + 1, JAM.z);
+            g.fx.explode(jp, 0xffb060);
+            audio.spatial.explosion(jp.x, jp.y, jp.z);
+            for (const m of this.props) if (m.children && m.children.length === 3) m.rotation.z = 1.2;
+            this.onLog(STORY.m2blown);
+          }
+        },
+        done: () => !!this.flags.blown,
+      },
+      {
+        id: 'm2manifest',
+        text: 'Search the petrol station for the convoy manifest',
+        hint: 'The kiosk office on Ridge Road, west of Main Street',
+        mark: 'manifest',
+        enter: () => {
+          this._spawn('heavy', -22, 120, { yaw: 0, post: true });
+          this._spawn('assault', -40, 116, { route: [[-40, 116], [-40, 140], [-40, 116]] });
+          this._spawn('assault', -12, 134, { yaw: Math.PI / 2, post: true });
+          this.interact.add({
+            id: 'manifest', pos: itemAt(tagged('kiosk')),
+            prompt: 'Take the manifest',
+            onUse: () => { this.flags.manifest = true; this.onLog(STORY.m2manifest); },
+          });
+        },
+        done: () => !!this.flags.manifest,
+      },
+      {
+        id: 'm2exfil',
+        text: 'Reach the pickup at the south roadblock',
+        hint: 'The end of Main Street',
+        mark: () => ({ x: 0, y: H(0, 318), z: 318 }),
+        enter: () => {
+          this._spawn('elite', 4, 290, { yaw: Math.PI, post: true });
+          this._spawn('assault', -6, 268, { route: [[-6, 268], [-6, 300], [-6, 268]] });
+          this._spawn('assault', 8, 252, { yaw: Math.PI, post: true });
+          this._spawn('heavy', 0, 305, { yaw: Math.PI, post: true });
+          for (const e of g.robots) if (!e.dead) e.alertTo(g.player.state.x, g.player.state.z, false);
+        },
+        done: () => {
+          const ok = this._nearAnchor({ x: 0, z: 318 }, 6);
+          if (ok && !this.flags.endLog) { this.flags.endLog = true; this.onLog(STORY.m2end); }
+          return ok;
+        },
+      },
+    ];
+  }
+
   _areaCentre(a) {
     return a ? { x: (a.minX + a.maxX) / 2, y: a.y || 0, z: (a.minZ + a.maxZ) / 2 } : null;
   }
@@ -523,7 +812,10 @@ export class Campaign {
     e.root.position.y = floor;
     g.scene.add(e.root);
     g.robots.push(e);
-    this.stageEnemies.push({ type, x, z, opts });
+    if (opts.target) e.isTarget = true;
+    // standing patrols live across objectives and come back on a reload
+    if (opts.persist) this.persist.push({ type, x, z, opts, robot: e });
+    else this.stageEnemies.push({ type, x, z, opts });
     return e;
   }
 
@@ -540,9 +832,21 @@ export class Campaign {
     this._closeAllDoors();
     this.checkpoint = null;
     this.stageEnemies.length = 0;
-    this.fromTown = from !== 'station' && !!this.game.town;
+    this.mission = from === 'm2' && this.m2.length ? 2 : 1;
+    this.stages = this.mission === 2 ? this.m2 : this.m1;
+    this.persist = [];
+    this.timer = 0;
+    this._clearProps();
+    this.fromTown = this.mission === 1 && from !== 'station' && !!this.game.town;
     this._fresh = true;   // the first objective of a run is not 'new'
-    if (this.fromTown) {
+    if (this.mission === 2) {
+      this.objIdx = -1;
+      this.game.townPower = true;
+      this._openDoor(this.gateDoor);
+      const p = this.game.player.state;
+      p.x = 0; p.z = 30; p.y = this.game.surfaceH(0, 30); p.yaw = Math.PI; p.vx = p.vy = p.vz = 0;
+      this.game.player.applyToCamera(0);
+    } else if (this.fromTown) {
       this.objIdx = -1;
       this.game.townPower = false;
       const p = this.game.player.state;
@@ -561,7 +865,7 @@ export class Campaign {
     const s = this.objective;
     if (!s) {
       this.active = false;
-      this.onLog(STORY.end);
+      if (this.mission === 1) this.onLog(STORY.end);
       this.onComplete();
       return;
     }
@@ -577,6 +881,7 @@ export class Campaign {
     this._t += dt;
     const s = this.objective;
     if (!s) return;
+    if (s.tick) s.tick(dt);
     if (s.done()) this._advance();
   }
 
@@ -594,6 +899,8 @@ export class Campaign {
       enemies: this.stageEnemies.map((e) => ({ ...e })),
       weapons: this.game.weapons.snapshot ? this.game.weapons.snapshot() : null,
       gear: this.game.gear ? this.game.gear.snapshot() : null,
+      persist: (this.persist || []).filter((e) => !e.robot.dead).map(({ type, x, z, opts }) => ({ type, x, z, opts })),
+      timer: this.timer,
     };
     this.onCheckpoint(this.objective);
   }
@@ -618,6 +925,13 @@ export class Campaign {
     this.interact.clear();
     const s = this.objective;
     if (s && s.enter) s.enter();
+    // enter() also spawned the stage's soldiers; the checkpoint's own list
+    // below is the one that counts, so those go (they were doubling up)
+    for (const r of g.robots) g.scene.remove(r.root);
+    g.robots.length = 0;
+    this.persist = [];
+    for (const e of c.persist || []) this._spawn(e.type, e.x, e.z, e.opts);
+    this.timer = c.timer || 0;
     for (const id of c.used) {
       const it = this.interact.get(id);
       if (it) it.used = true;
@@ -630,7 +944,7 @@ export class Campaign {
       const r = this._spawn(e.type, e.x, e.z, e.opts);
       if (e.y !== undefined) { r.root.position.y = e.y; this.stageEnemies[this.stageEnemies.length - 1].y = e.y; }
     }
-    this.game.townPower = !this.fromTown || !!this.flags.townPower;
+    this.game.townPower = this.mission === 2 || !this.fromTown || !!this.flags.townPower;
 
     const p = g.player.state;
     p.x = c.player.x; p.y = c.player.y; p.z = c.player.z; p.yaw = c.player.yaw;

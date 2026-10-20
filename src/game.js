@@ -10,6 +10,7 @@ import { FX } from './fx.js';
 import { rayBox } from './collide.js';
 import { buildNav } from './nav.js';
 import { Gear } from './gear.js';
+import { Vehicle } from './vehicle.js';
 import * as audio from './audio.js';
 import * as settings from './settings.js';
 
@@ -59,6 +60,8 @@ export class Game {
     this.weapons.floorAt = (x, z, hintY) => this.player.groundAt(x, z, (hintY === undefined ? 0 : hintY));
     this.fx = new FX(this.scene, this.camera);
     this.gear = new Gear(this);
+    this.vehicle = new Vehicle(this);
+    this.playBounds = built.PLAY;
     this.decals = new Decals(this.scene);
     // What each world material is made of, for impact marks, dust and sound.
     const M = built.mats;
@@ -190,6 +193,9 @@ export class Game {
       this.setPowered(false);
       this.campaign.start(this.difficulty || 'normal', this.campaignFrom || 'town');
     }
+    // mission 2 is a night operation whatever the menu says; everything else
+    // follows the setting
+    this._setTime(this.mode === MODE.CAMPAIGN && this.campaign.mission === 2 ? 'night' : settings.get('timeOfDay'));
     this._stockGear();
     this.onStateChange(this.state);
   }
@@ -205,9 +211,24 @@ export class Game {
       this.gear.crate(sp.x + 2.4, sp.z + 1.6, [['plate'], ['frag'], ['smoke'], ['attachment', 'foregrip'], ['attachment', 'suppressor'], ['ammo']]);
       return;
     }
+    const T = this.town;
+    this.vehicle.remove();
+    if (this.campaign.mission === 2) {
+      // the courier's truck, on the station shelf
+      this.vehicle.place(0, 27, Math.PI);   // lined up with the south gate
+      // a night in town needs the long rifle and more kit
+      W.setLoadout(['rifle', 'sniper']);
+      W.switchTo('rifle', true);
+      W.mount('rifle', 'suppressor');
+      Object.assign(this.gear.counts, { plates: 2, meds: 2, frags: 2, smokes: 1, flashes: 1 });
+      this.gear.crate(5.5, 33, [['ammo'], ['plate'], ['attachment', 'x2']]);
+      this.gear.crate(-96, 214, [['ammo'], ['medkit'], ['frag'], ['plate']]);
+      this.gear.crate(132, 128, [['ammo'], ['plate'], ['smoke'], ['flash']]);
+      this.gear.crate(-8, 262, [['ammo'], ['medkit'], ['plate']]);
+      return;
+    }
     W.setLoadout(['rifle', null]);
     W.switchTo('rifle', true);
-    const T = this.town;
     if (this.campaign.fromTown && T) {
       // beside the road where the walk in starts
       this.gear.crate(-3, 312.5, [['attachment', 'suppressor'], ['plate'], ['ammo']]);
@@ -245,7 +266,15 @@ export class Game {
     this.onStateChange(this.state);
   }
 
+  _setTime(tod) {
+    if (this._tod === tod || !this.atmos) return;
+    this._tod = tod;
+    this.atmos.setTime(tod);
+    if (this.post) this.post.setGrade(tod);
+  }
+
   toMenu() {
+    if (this.vehicle && this.vehicle.driving) this.vehicle.exit();
     this.state = STATE.MENU;
     this.input.enabled = false;
     this.input.wantPointerLock = false;
@@ -697,6 +726,7 @@ export class Game {
 
   hurt(dmg) {
     if (this.state !== STATE.PLAY) return;
+    if (this.vehicle && this.vehicle.driving) dmg *= 0.5;
     this.hurtT = CFG.player.regenDelay;
     this.fx.addShake(0.018);
     if (this.screen) this.screen.hit(dmg);
@@ -748,6 +778,18 @@ export class Game {
     const inp = this.input.take();
 
     if (inp.pause) { this.pause(); return; }
+
+    // ---- at the wheel: the stick and keys drive, nothing fires ----
+    const driving = this.vehicle.driving;
+    // Space is held as 'fire' in the input layer, so that is the brake (and on
+    // a phone, FIRE)
+    const drive = { throttle: -inp.moveY, steer: inp.moveX, brake: inp.firing || inp.jump };
+    if (driving) {
+      inp.moveX = inp.moveY = 0; inp.jump = inp.crouch = inp.sprint = false; inp.lean = 0;
+      inp.prone = inp.tactical = false; inp.firing = inp.ads = false;
+      inp.reload = inp.frag = inp.smoke = inp.flash = inp.plate = inp.medkit = inp.inventory = false;
+      inp.zero = 0; inp.switchTo = null; inp.inspect = false;
+    }
 
     // ---- weapon intent ----
     this.weapons.triggerHeld = inp.firing;
@@ -849,8 +891,13 @@ export class Game {
     // after this frame's draw call.
     this.scene.updateMatrixWorld(true);
 
-    if (inp.firing || !this.weapons.spec.auto) this.tryFire();
+    if (!driving && (inp.firing || !this.weapons.spec.auto)) this.tryFire();
     this.weapons.update(dt, this.scene);
+    this.vehicle.update(dt, drive);
+    if (this.vehicle.driving) {
+      this.weapons.model.gun.visible = false;
+      this.vehicle.placeDriverAndCamera();
+    }
 
     // keep the shadow frustum on the player
     const p = this.player.state;
@@ -938,6 +985,7 @@ export class Game {
     if (!this.campaign.hasCheckpoint()) { this.gameOver(); return; }
     this.stats.downs++;
     if (this.screen) this.screen.reset();
+    if (this.vehicle.driving) this.vehicle.exit();
     this.state = STATE.PLAY;
     this.campaign.restore();
     this.hurtT = 0;
@@ -1024,6 +1072,12 @@ export class Game {
 
   // F on a weapon or attachment lying in reach.
   _lootPrompt(inp) {
+    const vp = this.vehicle.prompt();
+    if (vp) {
+      this.onPrompt(vp, false);
+      if (inp && inp.interact && !this._interactHeld) this.vehicle.toggle();
+      return;
+    }
     const it = this.gear.pickable();
     this.onPrompt(it ? this.gear.promptFor(it) : null, false);
     if (it && inp && inp.interact && !this._interactHeld) this.gear.take(it);

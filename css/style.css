@@ -327,6 +327,9 @@ body{
 #screenfx i:nth-child(2){background:radial-gradient(circle,rgba(0,0,0,0) 45%,rgba(140,8,4,.8) 100%)}
 #screenfx i:nth-child(3){background:#fff}
 
+/* at the wheel there is nothing to aim */
+#combat.driving #crosshair,#combat.driving #hitmarker,#combat.driving #reload-ring{display:none}
+
 /* HUD hidden: only the controls and the scope stay */
 #combat.nohud > :not(#controls):not(#stick):not(#scope):not(#vignette){display:none!important}
 

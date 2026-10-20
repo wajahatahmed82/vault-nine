@@ -17,6 +17,7 @@ Almost everything is generated in code with Three.js: geometry, characters, soun
 - **Gunplay** with per-weapon learnable recoil patterns, surface-matched bullet impacts, scope sway with breath-holding, tactical and empty reloads. Rifle rounds past 50 m fly with travel time and drop; the marksman scope zeroes at 100-400 m.
 - **Loot and gear:** soldiers drop their weapon, ammo and kit; crates in the level. Attachments change real numbers (red dot, 2x, 4x, suppressor, compensator, foregrip, extended magazine). Two primaries plus a sidearm in the campaign, armour plates, medkits, frag and smoke grenades.
 - **Presentation:** minimap and compass with the objective and enemy gunfire, killfeed, objective pop-ups, a mission-complete screen. Positional 3D audio for gunfire, footsteps, impacts and soldiers' callouts. Camera effects (suppression blur, low-health colour drain, flashbang white-out, hit colour split), each switchable; the HUD can be hidden entirely. Ambient occlusion on HIGH/ULTRA.
+- **Mission 2, Dead Ground:** the whole town at night -- eight objectives over about 1.3 km of streets, eight standing patrols, rooftop marksmen, a jammer to blow and a 75-second hold, and a drivable pickup truck.
 - **Survival and Time Attack** arcade modes.
 - **Phones:** landscape touch controls, a contextual USE button, automatic quality that starts lean and adapts to real frame time.
 
@@ -32,6 +33,7 @@ Almost everything is generated in code with Three.js: geometry, characters, soun
 | F interact | USE (appears when something is in reach) |
 | 1–5 weapons (primaries, then sidearm), I inspect, Esc pause | SWAP, inspect button, pause button |
 | G frag, T smoke, V flashbang, B armour plate, H medkit, Tab pack (attachments, gear), [ ] sniper zero | NADE, BAG |
+| Truck: F in/out, W/S throttle, A/D steer, Space brake, mouse orbits the camera | USE, stick, FIRE brakes |
 
 ## Run and build
 
@@ -69,6 +71,9 @@ Run in the browser console on the dev server (or the built `docs/index.html`):
 (await import('/tools/towntest.js')).run(__rs)       // town prologue, 11 checks
 (await import('/tools/geartest.js')).run(__rs)       // ballistics, suppressor, loot, attachments, grenades, gear, 20 checks
 (await import('/tools/presenttest.js')).run(__rs)    // HUD, 3D audio, callouts, camera effects, AO, 21 checks
+(await import('/tools/mission2test.js')).run(__rs)   // mission 2 playthrough, 11 checks
+(await import('/tools/vehicletest.js')).run(__rs)    // the truck, 8 checks
+(await import('/tools/walktest.js')).run(__rs, { route: 'mission2' })   // mission 2 street route
 (await import('/tools/holescan.js')).run(__rs, { town: true })   // reachable spots with no floor
 (await import('/tools/perftest.js')).run(__rs, { preset: 'high' })   // worst-view search and timings
 ```
