@@ -25,6 +25,10 @@ function setup(rs, weapon) {
   game.robots.length = 0;
   input.releaseAll();
   input.pointerLocked = true;
+  // A pointer-lock request from an earlier game.start can deliver its change
+  // event late, which (correctly) swallows the next mouse move -- here, the
+  // calibration move, so compensation measured nothing and failed at random.
+  input.swallowMove = false;
   const W = game.weapons;
   W.switchTo(weapon, true);
   for (let i = 0; i < 30; i++) step(1 / 60);
@@ -50,6 +54,7 @@ function spray(rs, weapon, n, opts = {}) {
   let perUnit = 0;
   if (opts.compensate) {
     const before = p.pitch;
+    input.swallowMove = false;
     mouseMove(0, 20); step(1 / 60);
     perUnit = (before - p.pitch) / 20;
     mouseMove(0, -20); step(1 / 60);

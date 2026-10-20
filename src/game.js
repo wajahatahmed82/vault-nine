@@ -7,6 +7,7 @@ import { WeaponSystem, VIEW_LAYER } from './weapons.js';
 import { Player } from './player.js';
 import { Robot, pickType, STATE as AI } from './enemies.js';
 import { FX } from './fx.js';
+import { rayBox } from './collide.js';
 import * as audio from './audio.js';
 import * as settings from './settings.js';
 
@@ -29,7 +30,11 @@ export class Game {
     this.spawnPoint = built.spawn;
     this.scene.add(this.camera);
 
-    this.player = new Player(this.camera, this.colliders, built.spawn, built.voids);
+    this.grid = built.grid;
+    this.town = built.town;
+    this.surfaceH = built.surfaceH;
+    this.player = new Player(this.camera, this.colliders, built.spawn, built.voids,
+      { surface: built.surfaceH, grid: built.grid, bounds: built.PLAY });
     this.areas = built.areas;
     this.anchors = built.anchors;
     this.voids = built.voids;
@@ -233,14 +238,71 @@ export class Game {
 
   // ---------------- world queries used by the AI ----------------
 
+  // Feet height for the AI's blocked test. On the station shelf and inside the
+  // building this is 0, exactly the old absolute thresholds; in town it is the
+  // ground under the soldier.
+  feetAt(x, z) {
+    return this.player.inVoid(x, z) ? 0 : this.surfaceH(x, z);
+  }
+
+  addCollider(c) {
+    this.colliders.push(c);
+    this.grid.add(c);
+  }
+
   blockedAt(x, z) {
     const r = 0.55;
-    for (const c of this.colliders) {
-      if (c.top < 0.9) continue;                       // low enough to walk over
-      if (c.bottom !== undefined && c.bottom > 1.9) continue;   // high enough to walk under
+    const f = this.feetAt(x, z);
+    for (const c of this.grid.query(x - r, z - r, x + r, z + r)) {
+      if (c.top < f + 0.9) continue;                       // low enough to walk over
+      if (c.bottom !== undefined && c.bottom > f + 1.9) continue;   // high enough to walk under
       if (x + r > c.minX && x - r < c.maxX && z + r > c.minZ && z - r < c.maxZ) return true;
     }
     return false;
+  }
+
+  // Nearest hit on the town's collider boxes or the terrain along a ray. The
+  // town is never raycast as meshes: a merged chunk is thousands of triangles
+  // and three.js tests every one. Returns { distance, point, normal, kind }.
+  castStatic(origin, dir, far) {
+    const ox = origin.x, oy = origin.y, oz = origin.z, dx = dir.x, dy = dir.y, dz = dir.z;
+    let best = null, bestT = far;
+    this.grid.segment(ox, oz, ox + dx * far, oz + dz * far, (c) => {
+      if (!c.town) return false;
+      const h = rayBox(ox, oy, oz, dx, dy, dz, bestT, c);
+      if (h && h.t < bestT) { bestT = h.t; best = { t: h.t, axis: h.axis, sign: h.sign, kind: c.surf }; }
+      return false;
+    });
+    // terrain: coarse march out to the nearest box hit, then bisect. Skipped
+    // inside the station building, whose floors are real geometry.
+    if (!this.player.inVoid(ox, oz)) {
+      const step = 3;
+      let prevT = 0;
+      for (let t = step; prevT < bestT; t += step) {
+        const tt = Math.min(t, bestT);
+        const y = oy + dy * tt;
+        if (y > 60) break;
+        if (y <= this.surfaceH(ox + dx * tt, oz + dz * tt)) {
+          let a = prevT, b = tt;
+          for (let k = 0; k < 8; k++) {
+            const m = (a + b) / 2;
+            if (oy + dy * m > this.surfaceH(ox + dx * m, oz + dz * m)) a = m; else b = m;
+          }
+          bestT = b; best = { t: b, axis: 1, sign: 1, kind: 'masonry', ground: true };
+          break;
+        }
+        prevT = tt;
+      }
+    }
+    if (!best) return null;
+    const point = new THREE.Vector3(ox + dx * best.t, oy + dy * best.t, oz + dz * best.t);
+    const normal = new THREE.Vector3();
+    if (best.ground) {
+      const e = 0.5;
+      normal.set(this.surfaceH(point.x - e, point.z) - this.surfaceH(point.x + e, point.z), 2 * e,
+        this.surfaceH(point.x, point.z - e) - this.surfaceH(point.x, point.z + e)).normalize();
+    } else normal.setComponent(best.axis, best.sign);
+    return { distance: best.t, point, normal, kind: best.kind };
   }
 
   // Line of sight against the collider boxes rather than the render meshes.
@@ -252,7 +314,15 @@ export class Game {
     const dist = Math.hypot(dx, dy, dz);
     if (dist < 0.5) return true;
 
-    for (const c of this.colliders) {
+    // hills and the station bank hide people too
+    for (let k = 1; k < 6; k++) {
+      const t = k / 6;
+      const x = from.x + dx * t, z = from.z + dz * t;
+      if (!this.player.inVoid(x, z) && from.y + dy * t < this.surfaceH(x, z) - 0.1) return false;
+    }
+
+    let seen = true;
+    this.grid.segment(from.x, from.z, tx, tz, (c) => {
       const bottom = c.bottom === undefined ? 0 : c.bottom;
       // slab test over the parametric range [0,1] of the segment
       let t0 = 0, t1 = 1;
@@ -264,13 +334,14 @@ export class Game {
         if (b < t1) t1 = b;
         return t1 >= t0;
       };
-      if (!slab(from.x, dx, c.minX, c.maxX)) continue;
-      if (!slab(from.y, dy, bottom, c.top)) continue;
-      if (!slab(from.z, dz, c.minZ, c.maxZ)) continue;
+      if (!slab(from.x, dx, c.minX, c.maxX)) return false;
+      if (!slab(from.y, dy, bottom, c.top)) return false;
+      if (!slab(from.z, dz, c.minZ, c.maxZ)) return false;
       // ignore contacts right at the target, so standing against cover still sees
-      if (t1 > 0.02 && t0 < 0.96) return false;
-    }
-    return true;
+      if (t1 > 0.02 && t0 < 0.96) { seen = false; return true; }
+      return false;
+    });
+    return seen;
   }
 
   // ---------------- combat ----------------
@@ -304,6 +375,8 @@ export class Game {
       this.ray.set(origin, dir);
       this.ray.far = range;
       const hits = this.ray.intersectObjects(targets, false);
+      const st = this.castStatic(origin, dir, hits.length ? hits[0].distance : range);
+      if (st) hits.unshift({ distance: st.distance, point: st.point, object: null, townHit: st });
       const drawTracer = tracerShot && (W.spec.pellets === 1 || pelletTracers++ < 2);
       if (!hits.length) {
         if (drawTracer) this.fx.tracer(muzzle, origin.clone().addScaledVector(dir, range));
@@ -311,7 +384,7 @@ export class Game {
       }
       const hit = hits[0];
       if (drawTracer) this.fx.tracer(muzzle, hit.point);
-      const ud = hit.object.userData;
+      const ud = hit.object ? hit.object.userData : null;
 
       if (ud && ud.robot) {
         const robot = ud.robot;
@@ -337,10 +410,16 @@ export class Game {
           this.alertNear(robot.root.position, 12, false);
         }
       } else {
-        const n = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0);
-        // Merged statics have identity transforms, but doors and props may not.
-        n.transformDirection(hit.object.matrixWorld);
-        const kind = this.surface.get(hit.object.material) || 'masonry';
+        let n, kind;
+        if (hit.townHit) {
+          n = hit.townHit.normal;
+          kind = hit.townHit.kind;
+        } else {
+          n = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0);
+          // Merged statics have identity transforms, but doors and props may not.
+          n.transformDirection(hit.object.matrixWorld);
+          kind = this.surface.get(hit.object.material) || 'masonry';
+        }
         this.decals.add(hit.point, n, kind);
         if (kind === 'metal') {
           this.fx.sparkBurst(hit.point, n, 7);
@@ -409,6 +488,8 @@ export class Game {
       this.ray.set(origin, dir);
       this.ray.far = 90;
       const blocked = this.ray.intersectObjects(this.blockers, false);
+      const st = this.castStatic(origin, dir, blocked.length ? blocked[0].distance : 90);
+      if (st) blocked.unshift({ distance: st.distance, point: st.point });
       const toPlayer = camPos.clone().sub(origin);
       const along = toPlayer.dot(dir);
       const perp = toPlayer.clone().addScaledVector(dir, -along).length();
@@ -540,6 +621,11 @@ export class Game {
     for (let i = this.robots.length - 1; i >= 0; i--) {
       const r = this.robots[i];
       r.update(dt, ctx);
+      if (!r.dead) {
+        // stand on the ground: slopes, kerbs, the station road
+        const rp = r.root.position;
+        rp.y = this.player.groundAt(rp.x, rp.z, rp.y + 0.3);
+      }
       if (r.removable) { this.scene.remove(r.root); this.robots.splice(i, 1); }
     }
 
@@ -607,7 +693,7 @@ export class Game {
   // Floor height for placing a soldier: the campaign puts some of them in the
   // basement, where y=0 would leave them standing in the ceiling.
   floorAt(x, z) {
-    return this.player.groundAt(x, z, 1.0);
+    return this.player.groundAt(x, z, this.feetAt(x, z) + 1.0);
   }
 
   setPowered(on) {
@@ -712,10 +798,17 @@ export class Game {
   // can never clip through a wall.
   render() {
     const cam = this.camera, r = this.renderer;
+    if (this.town) this.town.update(cam.position);
     const bg = this.scene.background;
 
+    // The world pass uses a 20 cm near plane (nothing in the world comes closer
+    // than the player's 40 cm radius); only the weapon needs a close one. Four
+    // times the depth precision at range, which is what keeps roads draped a
+    // few centimetres over terrain from flickering at 150 m.
+    cam.near = 0.2; cam.updateProjectionMatrix();
     cam.layers.set(0);
     r.render(this.scene, cam);
+    cam.near = 0.03; cam.updateProjectionMatrix();
 
     // The weapon pass must not repaint the sky. An equirectangular
     // scene.background is drawn by three as a full-screen mesh with depth

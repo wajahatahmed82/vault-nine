@@ -627,7 +627,11 @@ export class Enemy {
       breathe: this.breathe,
     });
     // sink out of sight once the fall has finished, then the wave frees it
-    if (this.deathT > 1.8) this.root.position.y = -(this.deathT - 1.8) * 1.1;
+    if (this.deathT > 1.8) {
+      // sink from wherever they fell -- the basement or a hillside, not y=0
+      if (this.sinkY === undefined) this.sinkY = this.root.position.y;
+      this.root.position.y = this.sinkY - (this.deathT - 1.8) * 1.1;
+    }
   }
 
   get removable() { return this.dead && this.deathT > 2.7; }

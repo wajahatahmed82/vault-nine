@@ -11,9 +11,15 @@ import { CFG } from './config.js';
 const STEP_UP = 0.46;     // auto-climb height, so kerbs and low crates are free
 
 export class Player {
-  constructor(camera, colliders, spawn, voids) {
+  constructor(camera, colliders, spawn, voids, world) {
     this.camera = camera;
     this.colliders = colliders;
+    // Outdoor ground is the terrain (plus kerb height on lots), and colliders
+    // come from a grid rather than a list walk. Without a world, flat ground at
+    // y=0 and a linear scan, which is what the tools' minimal setups use.
+    this.surface = (world && world.surface) || (() => 0);
+    this.grid = world && world.grid;
+    this.bounds = world && world.bounds;
     // Inside a void the outdoor ground plane does not exist, so the floor comes
     // only from real slab colliders. Without this the basement is unreachable:
     // the player would stand on invisible ground at y=0.
@@ -45,7 +51,8 @@ export class Player {
 
   reset() {
     const s = this.state;
-    s.x = this.spawn.x; s.y = 0; s.z = this.spawn.z;
+    s.x = this.spawn.x; s.z = this.spawn.z;
+    s.y = this.inVoid(s.x, s.z) ? 0 : this.surface(s.x, s.z);
     s.vx = s.vy = s.vz = 0;
     s.yaw = this.spawn.yaw || 0; s.pitch = 0;
     s.health = CFG.player.maxHealth;
@@ -71,10 +78,14 @@ export class Player {
   }
 
   // Highest surface directly under (x,z) that is at or below the feet.
+  near(x, z, r) {
+    return this.grid ? this.grid.query(x - r, z - r, x + r, z + r) : this.colliders;
+  }
+
   groundAt(x, z, feetY) {
     const r = CFG.player.radius;
-    let best = this.inVoid(x, z) ? -60 : 0;
-    for (const c of this.colliders) {
+    let best = this.inVoid(x, z) ? -60 : this.surface(x, z);
+    for (const c of this.near(x, z, r)) {
       if (x + r <= c.minX || x - r >= c.maxX || z + r <= c.minZ || z - r >= c.maxZ) continue;
       if (c.top <= feetY + STEP_UP && c.top > best) best = c.top;
     }
@@ -84,7 +95,9 @@ export class Player {
   blocked(x, z, feetY) {
     const r = CFG.player.radius;
     const head = feetY + this.eyeHeight + CFG.player.eyeToTop;
-    for (const c of this.colliders) {
+    // rising ground too steep to step up
+    if (!this.inVoid(x, z) && this.surface(x, z) > feetY + STEP_UP) return true;
+    for (const c of this.near(x, z, r)) {
       if (x + r <= c.minX || x - r >= c.maxX || z + r <= c.minZ || z - r >= c.maxZ) continue;
       // walk over anything low enough to step onto, duck under anything high
       if (c.top <= feetY + STEP_UP) continue;
@@ -112,7 +125,7 @@ export class Player {
     let wantCrouch = input.crouch ? 1 : 0;
     if (!wantCrouch && s.crouch > 0) {
       const standHead = s.y + CFG.camera.standHeight + P.eyeToTop;
-      for (const c of this.colliders) {
+      for (const c of this.near(s.x, s.z, P.radius)) {
         if (s.x + P.radius <= c.minX || s.x - P.radius >= c.maxX ||
             s.z + P.radius <= c.minZ || s.z - P.radius >= c.maxZ) continue;
         if (c.bottom !== undefined && c.bottom < standHead && c.top > s.y + 0.2) { wantCrouch = 1; break; }
@@ -160,10 +173,17 @@ export class Player {
     const nz = s.z + s.vz * dt;
     if (!this.blocked(s.x, nz, s.y)) s.z = nz; else s.vz = 0;
 
-    const d = Math.hypot(s.x, s.z);
-    if (d > P.arenaRadius) { s.x = (s.x / d) * P.arenaRadius; s.z = (s.z / d) * P.arenaRadius; }
+    if (this.bounds) {
+      const B = this.bounds;
+      s.x = Math.min(B.maxX, Math.max(B.minX, s.x));
+      s.z = Math.min(B.maxZ, Math.max(B.minZ, s.z));
+    } else {
+      const d = Math.hypot(s.x, s.z);
+      if (d > P.arenaRadius) { s.x = (s.x / d) * P.arenaRadius; s.z = (s.z / d) * P.arenaRadius; }
+    }
 
     // ---- vertical ----
+    const wasGrounded = s.grounded;
     s.vy -= P.gravity * dt;
     s.y += s.vy * dt;
 
@@ -176,6 +196,11 @@ export class Player {
       s.y = floor;
       s.vy = 0;
       s.grounded = true;
+    } else if (wasGrounded && s.vy <= 0 && s.y - floor < 0.4) {
+      // Follow the ground down slopes and stairs instead of falling a few
+      // centimetres every frame, which made footsteps and jumping flicker.
+      s.y = floor;
+      s.vy = 0;
     } else if (s.y > floor + 0.02) {
       s.grounded = false;
     }

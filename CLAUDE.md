@@ -9,7 +9,7 @@ Live: https://wajahatahmed82.github.io/vault-nine/  (repo `wajahatahmed82/vault-
     node tools/serve.js 5181        # dev server, sends no-store
     # http://localhost:5181
 
-    npx esbuild src/main.js --bundle --format=iife --minify --outfile=dist/bundle.js
+    npx --no-install esbuild src/main.js --bundle --format=iife --minify --outfile=dist/bundle.js
     node tools/build.js             # writes the single-file build into docs/
     git add -A && git commit -m "..." && git push   # Pages redeploys from docs/
 
@@ -58,6 +58,18 @@ Live: https://wajahatahmed82.github.io/vault-nine/  (repo `wajahatahmed82/vault-
 - **PowerShell can report success after an exception.** A `&&` chain carried on and deleted a source file after a failed image conversion. Check the output file exists and is non-empty before deleting the input.
 - **Play rejects feature graphics with an alpha channel.** Canvas PNGs are 32-bit; export the feature graphic as JPEG.
 - **String `.replace()` in build must use function.** `$&` in replacement string means "insert the match", minified JS contains `$&`.
+- **Colliders go through `game.addCollider`, never `colliders.push`.** Movement, AI and sight read a `CollisionGrid` (src/collide.js); a box pushed onto the array alone is invisible to all of them.
+- **Town colliders need a `bottom`.** The valley is below y=0 and `canSee` treats a missing bottom as 0, so sight lines passed under every building.
+- **`blockedAt` is feet-relative.** It used absolute heights (top < 0.9 = walk over); at y=-7 every building in town counted as low enough to step over.
+- **Vertex colours must be converted to linear.** three.js treats them as linear; writing sRGB values made the whole town and terrain washed out. `GeoBuf` and `terrain.js` convert.
+- **Never raycast town meshes.** A merged chunk is thousands of triangles and three.js tests every one. Bullets and enemy fire use `game.castStatic` (collider boxes via the grid, plus a march over the terrain height function).
+- **A road draped a few cm above the terrain shows a grass sliver under its end lip.** Start roads on existing asphalt (Station Road starts at z=45, on the shelf).
+- **polygonOffset on roads drew a bright seam at grazing angles.** Use real lift (6-8 cm) and the 0.2 m world near plane instead.
+- **The world pass uses near=0.2, the weapon pass near=0.03** (set in `Game.render`). 4x the depth precision at range.
+- **Upload all town buffers at load** (main.js, after `renderer.compile`). Otherwise each chunk's first appearance stalled the frame ~40 ms.
+- **The valley floor is legitimately down to about y=-10.** Hole and fall checks use -50 / -30, not -10.
+- **Town frame cost is CPU, not GPU.** Same time at 320x180 as at 1080p; budget draw calls and objects, not pixels. Benchmark with paired runs (town on/off interleaved) — a 3-minute sweep throttled the laptop 10x.
+- **A late `pointerlockchange` swallows the next mouse move** (correct in play). Tests that calibrate with one synthetic move must clear `input.swallowMove` first.
 
 ## Verifying changes
 
@@ -71,6 +83,19 @@ Aiming test bot, target real hitbox (`robot.hitboxes[0]` is head) via `getWorldP
 
 Measure render cost with `gl.finish()`, else timing CPU submit only.
 `renderer.info` resets per `render()` call, `render()` runs two passes — set `renderer.info.autoReset = false` before counting draw calls.
+
+## Town (Meridian Ridge)
+
+`src/terrain.js`: one analytic height function (`terrainH`) for mesh, player, AI and bullets. Station shelf flat at y=0 (`SHELF`), valley ~7 m below, mountains past `PLAY` bounds (player clamped to the rectangle; `arenaRadius` only used without a world). Fine 2.5 m tiles inside, 25 m coarse ring outside, seam heights matched.
+
+`src/town.js`: street plan and district table are data; blocks get lots, buildings are records (`building()`), emitted by `emitBuilding` into per-80 m-chunk `GeoBuf`s per material (walls, roof, trim, glass) plus always-on ground/road. Near detail hidden beyond `detailDist` (view distance setting); one whole-town far mesh of shells inset 15 cm always draws. Lots are raised 15 cm (kerb) — `town.surfaceH` is the walkable ground. `src/geobuf.js` writes vertices straight into arrays instead of building and merging a THREE.BoxGeometry per box.
+
+    const p = await import('/tools/perftest.js'); await p.run(__rs, { preset: 'high' })   // worst-view search + timings
+    const h = await import('/tools/holescan.js'); h.run(__rs, { town: true })
+    const w = await import('/tools/walktest.js'); w.run(__rs, { route: 'town' })
+    const ph = await import('/tools/photo.js'); ph.on(__rs); ph.eye(__rs, x, z, yaw, pitch)
+
+Phase 1 numbers (grey-box, 150 buildings, 720 colliders): worst view 134 draw calls / 230k tris at HIGH, 80 / 137k at LOW.
 
 ## Characters
 

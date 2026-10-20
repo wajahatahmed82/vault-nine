@@ -294,7 +294,7 @@ export class Campaign {
     const col = axis === 'z'
       ? { minX: x - 0.2, maxX: x + 0.2, minZ: z - half, maxZ: z + half, top: yy + 2.3, bottom: yy }
       : { minX: x - half, maxX: x + half, minZ: z - 0.2, maxZ: z + 0.2, top: yy + 2.3, bottom: yy };
-    g.colliders.push(col);
+    g.addCollider(col);
     // Remember the shut collider so a restart can put the door back. Without
     // this a replay starts with every door already open.
     const d = { mesh, col, open: false, shutTop: col.top, shutBottom: col.bottom };

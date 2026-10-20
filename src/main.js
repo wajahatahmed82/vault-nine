@@ -41,7 +41,10 @@ const hud = new HUD(game, input, prog);
 const DPR_CAP = Math.min(window.devicePixelRatio || 1, 2);
 const SHADOW_SIZE = { off: 0, low: 512, medium: 1024, high: 2048 };
 const VIEW_FOG = { near: 0.016, medium: 0.0075, far: 0.0035 };
-const VIEW_FAR = { near: 160, medium: 280, far: 400 };
+const VIEW_FAR = { near: 160, medium: 280, far: 900 };
+// How far town buildings keep their full structure. Past this a single
+// whole-town mesh of plain shells stands in, and fog covers the change.
+const VIEW_DETAIL = { near: 90, medium: 150, far: 220 };
 
 let renderScale = 1.0;
 let shadowsOn = true;
@@ -96,9 +99,12 @@ function applyQuality() {
     setShadows(sq !== 'off', SHADOW_SIZE[sq] || 1024);
   }
 
-  const vd = settings.get('viewDistance');
+  // Phones on auto keep the near view distance: town detail stops at 90 m,
+  // which takes the worst view in town from ~134 draw calls to ~80.
+  const vd = q === 'auto' && TOUCH_ONLY ? 'near' : settings.get('viewDistance');
   if (game.scene.fog) game.scene.fog.density = VIEW_FOG[vd] ?? VIEW_FOG.medium;
   game.camera.far = VIEW_FAR[vd] ?? VIEW_FAR.medium;
+  if (game.town) game.town.detailDist = VIEW_DETAIL[vd] ?? VIEW_DETAIL.medium;
   game.camera.updateProjectionMatrix();
 
   game.fx.setBudget(settings.get('effects'));
@@ -142,6 +148,17 @@ let shadowTick = 0;
 // Compile every shader up front, otherwise the first frame showing a new
 // material stalls for over 100ms mid-firefight.
 renderer.compile(game.scene, game.camera);
+
+// Upload every town buffer to the GPU now. A chunk's geometry is otherwise
+// first sent when it first comes into view, which showed up as a 40 ms hitch
+// the first time the player turned toward a new street.
+{
+  const culled = [];
+  game.scene.traverse((o) => { if (o.isMesh && o.frustumCulled) { o.frustumCulled = false; culled.push(o); } });
+  if (game.town) game.town.update({ x: 0, z: 0 }, Infinity);
+  renderer.render(game.scene, game.camera);
+  for (const o of culled) o.frustumCulled = true;
+}
 
 const unlockOnce = () => { audio.unlock(); window.removeEventListener('pointerdown', unlockOnce); };
 window.addEventListener('pointerdown', unlockOnce);

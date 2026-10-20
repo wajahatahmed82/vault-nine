@@ -214,10 +214,16 @@ export function buildFacility(scene, mats, PAL) {
     if (horiz) box('paintMetal', 0.12, H, 0.12, hi, H / 2, fixed);
     else box('paintMetal', 0.12, H, 0.12, fixed, H / 2, hi);
   };
-  fenceRun(-34, 42, 34, 42, []);
+  // south gate onto Station Road, down to the town
+  fenceRun(-34, 42, 34, 42, [[0, 9]]);
   fenceRun(-34, 42, -34, -2, []);
   fenceRun(34, 42, 34, -2, []);
   fenceRun(-34, 14.5, 34, 14.5, [[0, 9]]);
+
+  box('steel', 0.4, 3.2, 0.4, -4.6, 1.6, 42);
+  box('steel', 0.4, 3.2, 0.4, 4.6, 1.6, 42);
+  box('rust', 0.16, 2.4, 4.2, -6.9, 1.3, 40.2, false);
+  box('rust', 0.16, 2.4, 4.2, 6.9, 1.3, 40.2, false);
 
   // gate posts and the swung-open leaves
   box('steel', 0.4, 3.2, 0.4, -4.6, 1.6, 14.5);

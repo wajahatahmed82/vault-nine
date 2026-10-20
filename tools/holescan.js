@@ -9,7 +9,7 @@
 export function run(rs, opts = {}) {
   const { game, MODE } = rs;
   const P = game.player;
-  const step = opts.step || 0.5;
+  const step = opts.step || (opts.town ? 1 : 0.5);
   game.start(MODE.SURVIVAL);
   for (const r of game.robots) game.scene.remove(r.root);
   game.robots.length = 0;
@@ -17,7 +17,9 @@ export function run(rs, opts = {}) {
   // keycard doors open, so the whole building is reachable
   if (game.campaign) for (const d of game.campaign.doors) game.campaign._openDoor(d);
 
-  const seeds = opts.seeds || [
+  const seeds = opts.seeds || (opts.town
+    ? [[0, 34], [0, 80], [2, 200]].map(([x, z]) => ({ x, z, y: P.groundAt(x, z, game.surfaceH(x, z) + 0.3) }))
+    : null) || [
     { x: 0, z: 34, y: 0 },        // car park
     { x: -3.5, z: -59.5, y: -3.6 } // stair landing (also reachable from the stairs)
   ];
@@ -28,8 +30,12 @@ export function run(rs, opts = {}) {
   let cells = 0;
   for (const s of seeds) { queue.push(s); seen.add(key(s.x, s.z, s.y)); }
 
-  const bounds = { minX: -40, maxX: 40, minZ: -70, maxZ: 48 };
-  while (queue.length && cells < 200000) {
+  // Default: the station. `town: true` scans the whole valley at 1 m, seeded
+  // from Main Street, the station road and the car park.
+  const bounds = opts.bounds || (opts.town ? { minX: -214, maxX: 214, minZ: -79, maxZ: 344 }
+    : { minX: -40, maxX: 40, minZ: -70, maxZ: 48 });
+  const limit = opts.limit || (opts.town ? 400000 : 200000);
+  while (queue.length && cells < limit) {
     const c = queue.shift();
     cells++;
     for (const [dx, dz] of [[step, 0], [-step, 0], [0, step], [0, -step]]) {
@@ -37,7 +43,9 @@ export function run(rs, opts = {}) {
       if (nx < bounds.minX || nx > bounds.maxX || nz < bounds.minZ || nz > bounds.maxZ) continue;
       if (P.blocked(nx, nz, c.y)) continue;
       const floor = P.groundAt(nx, nz, c.y);
-      if (floor < -10) {
+      // the valley floor is legitimately down to about -10; a hole is the
+      // -60 "no floor here" value inside the building's void
+      if (floor < -50) {
         holes.push({ from: [c.x, c.y, c.z], into: [+nx.toFixed(2), +nz.toFixed(2)] });
         continue;
       }
@@ -66,5 +74,6 @@ export function run(rs, opts = {}) {
     }
     reached[name] = ok;
   }
-  return { cellsReached: cells, holeCells: holes.length, holeRegions: regions, reached };
+  return { cellsReached: cells, holeCells: holes.length, holeRegions: regions.slice(0, 12), reached,
+           capped: cells >= limit };
 }

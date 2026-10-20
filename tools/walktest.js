@@ -55,9 +55,33 @@ const ROUTE = [
   ['loading bay',         18, -56, 0],
 ];
 
+// The town: out of the station's south gate, down Station Road and through
+// every district. Expected heights are read from the ground itself (null).
+const TOWN_ROUTE = [
+  ['car park',          0, 34, 0],
+  ['south gate',        0, 44, 0],
+  ['station road',      0, 75, null],
+  ['ridge junction',    0, 110, null],
+  ['main street',       0, 150, null],
+  ['square',           20, 192, null],
+  ['town hall street', 50, 192, null],
+  ['main south',        0, 230, null],
+  ['main end',          0, 300, null],
+  ['street 275 west', -50, 275, null],
+  ['terrace street', -100, 275, null],
+  ['west 3 street',  -150, 220, null],
+  ['ridge road west', -150, 110, null],
+  ['ridge road east',  100, 110, null],
+  ['east 3 street',    150, 200, null],
+  ['between warehouses', 185, 190, null],
+  ['back to street',   150, 190, null],
+  ['east 3 street south', 150, 262, null],
+  ['water tower yard', 168, 270, null],
+];
+
 export function run(rs, opts = {}) {
   const { game, step, MODE } = rs;
-  const maxSeconds = opts.maxSeconds || 26;
+  const maxSeconds = opts.maxSeconds || (opts.route === 'town' ? 90 : 26);
   game.start(MODE.SURVIVAL);
   game.player.state.health = 1e9;
   // This test is about whether the level connects, not about locks, so open the
@@ -70,12 +94,14 @@ export function run(rs, opts = {}) {
   for (const r of game.robots) game.scene.remove(r.root);
   game.robots.length = 0;
 
+  const route = opts.route === 'town' ? TOWN_ROUTE : ROUTE;
   const p = game.player.state;
-  p.x = ROUTE[0][1]; p.z = ROUTE[0][2]; p.y = 0; p.vx = p.vz = p.vy = 0;
+  p.x = route[0][1]; p.z = route[0][2]; p.y = 0; p.vx = p.vz = p.vy = 0;
 
   const legs = [];
-  for (let i = 1; i < ROUTE.length; i++) {
-    const [name, tx, tz, ty] = ROUTE[i];
+  for (let i = 1; i < route.length; i++) {
+    const [name, tx, tz, ty0] = route[i];
+    const ty = ty0 === null ? game.surfaceH(tx, tz) : ty0;
     const startX = p.x, startZ = p.z;
     let t = 0, reached = false, minD = Infinity;
     let stuckFor = 0, lastD = Infinity;
@@ -106,7 +132,7 @@ export function run(rs, opts = {}) {
       t += 1 / 60;
     }
     legs.push({
-      leg: ROUTE[i - 1][0] + ' -> ' + name,
+      leg: route[i - 1][0] + ' -> ' + name,
       reached,
       seconds: +t.toFixed(1),
       closestApproach: +minD.toFixed(2),
@@ -128,6 +154,7 @@ export function run(rs, opts = {}) {
   const failed = legs.filter((l) => !l.reached);
   // A leg that ends far below any floor means the walker found a hole in the
   // level, which matters far more than a leg the probe could not steer.
-  const fellOut = legs.filter((l) => l.endedAt[1] < -10).map((l) => l.leg);
+  // (the valley floor itself is down to about -10)
+  const fellOut = legs.filter((l) => l.endedAt[1] < -30).map((l) => l.leg);
   return { total: legs.length, passed: legs.length - failed.length, failed, fellOut, legs };
 }

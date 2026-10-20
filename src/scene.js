@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { CFG, PAL } from './config.js';
 import { buildMaterials } from './materials.js';
 import { buildFacility } from './facility.js';
+import { buildTerrain, terrainH, SHELF, PLAY } from './terrain.js';
+import { buildTown } from './town.js';
+import { CollisionGrid } from './collide.js';
 
 // Sky, light and ground for the campaign location. The building itself is
 // built by facility.js; this file owns everything around it.
@@ -67,16 +70,25 @@ export function buildScene(renderer) {
   scene.add(sun, sun.target);
 
   // ---------------- ground ----------------
-  // Asphalt, tiled in metres rather than stretched once across 500m, which is
-  // what made the ground read as a flat colour field.
-  const groundGeo = new THREE.PlaneGeometry(500, 500);
+  // The station shelf is asphalt, tiled in metres. Around it the terrain mesh
+  // takes over: the shelf's quads are left out of the terrain, and this slab
+  // covers exactly that hole.
+  // Overlaps the terrain by 30 cm and sits 1 cm low: the terrain is still flat
+  // at the edge, so the overlap hides under it and closes the hairline crack
+  // where two meshes with different vertex spacing meet.
+  const sw = SHELF.maxX - SHELF.minX + 0.6, sd = SHELF.maxZ - SHELF.minZ + 0.6;
+  const groundGeo = new THREE.PlaneGeometry(sw, sd);
   const guv = groundGeo.attributes.uv;
-  for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * 71, guv.getY(i) * 71);
+  for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * sw / 7, guv.getY(i) * sd / 7);
   guv.needsUpdate = true;
   const ground = new THREE.Mesh(groundGeo, mats.asphalt);
   ground.rotation.x = -Math.PI / 2;
+  ground.position.set((SHELF.minX + SHELF.maxX) / 2, -0.01, (SHELF.minZ + SHELF.maxZ) / 2);
   ground.receiveShadow = true;
   scene.add(ground);
+
+  const terrain = buildTerrain(scene);
+  const town = buildTown(scene, mats);
 
   // ---------------- the facility ----------------
   const f = buildFacility(scene, mats, PAL);
@@ -93,10 +105,18 @@ export function buildScene(renderer) {
     spawn.z + pr > c.minZ && spawn.z - pr < c.maxZ && c.top > 0.5);
   if (conflicts.length) console.warn('spawn is inside cover', conflicts);
 
+  // Town meshes are not raycast: bullets test the town's collider boxes and
+  // the terrain height function instead, which costs a few boxes rather than
+  // every triangle in a chunk.
   const blockers = f.statics.concat([ground]);
+  const colliders = f.colliders.concat(town.colliders);
+  const grid = new CollisionGrid(8);
+  for (const c of colliders) grid.add(c);
   return {
+    terrain, town, grid, terrainH, PLAY,
+    surfaceH: town.surfaceH,
     scene, sun, blockers, mats, spawn,
-    colliders: f.colliders,
+    colliders,
     voids: f.voids,
     areas: f.areas,
     anchors: f.anchors,
