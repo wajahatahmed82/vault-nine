@@ -49,6 +49,7 @@ export const CFG = {
       spreadMax: 0.095, spreadRecover: 0.17, moveSpreadMul: 1.6,
       recoilPitch: 0.0115, recoilYaw: 0.0048, recoilRecover: 8.0, kickBack: 0.026,
       fovAds: 46, adsZoom: 1, unlockLevel: 1,
+      velocity: 600,           // m/s; past 50 m the round flies and drops
       shape: { barrel: 0.30, stock: true, mag: 'long', optic: 'dot', bulk: 1.0 },
     },
     smg: {
@@ -82,8 +83,52 @@ export const CFG = {
       spreadMax: 0.115, spreadRecover: 0.3, moveSpreadMul: 2.2,
       recoilPitch: 0.055, recoilYaw: 0.012, recoilRecover: 5.0, kickBack: 0.090,
       fovAds: 16, adsZoom: 4, unlockLevel: 4,
+      velocity: 760, zeroing: [100, 200, 300, 400],
       shape: { barrel: 0.52, stock: true, mag: 'short', optic: 'scope', bulk: 1.2 },
     },
+    // Sidearm: always carried, never takes a primary slot.
+    pistol: {
+      sprintToFire: 0.10,
+      name: 'P9 SIDEARM', slot: 5, auto: false, sidearm: true,
+      rpm: 400, magSize: 12, reserve: 72, damage: 24, headMul: 2.4,
+      reloadTime: 1.45, reloadEmpty: 1.75, range: 90, pellets: 1,
+      spreadHip: 0.034, spreadAds: 0.0055, spreadPerShot: 0.012,
+      spreadMax: 0.075, spreadRecover: 0.32, moveSpreadMul: 1.0,
+      recoilPitch: 0.020, recoilYaw: 0.006, recoilRecover: 9.0, kickBack: 0.032,
+      fovAds: 58, adsZoom: 1, unlockLevel: 1,
+      shape: { barrel: 0.04, stock: false, mag: 'short', optic: 'iron', bulk: 0.6 },
+    },
+  },
+
+  // Attachments change real numbers, not just looks. Multipliers on the base
+  // weapon; `slot` is where it mounts (one per slot).
+  attachments: {
+    dot:         { slot: 'optic',  name: 'RED DOT',      adsTime: 0.85, fovMul: 0.95 },
+    x2:          { slot: 'optic',  name: '2X SCOPE',     zoom: 2.0, adsTime: 1.1 },
+    x4:          { slot: 'optic',  name: '4X SCOPE',     zoom: 4.0, adsTime: 1.25, scope: true },
+    suppressor:  { slot: 'muzzle', name: 'SUPPRESSOR',   noise: 0.22, damage: 0.92, flash: 0 },
+    compensator: { slot: 'muzzle', name: 'COMPENSATOR',  recoilUp: 0.85, recoilSide: 0.5 },
+    foregrip:    { slot: 'grip',   name: 'FOREGRIP',     recoilUp: 0.75, recoilSide: 0.8 },
+    extmag:      { slot: 'mag',    name: 'EXTENDED MAG', mag: 1.5 },
+  },
+  // which attachments fit which weapon
+  fits: {
+    rifle: ['dot', 'x2', 'x4', 'suppressor', 'compensator', 'foregrip', 'extmag'],
+    smg: ['dot', 'x2', 'suppressor', 'compensator', 'foregrip', 'extmag'],
+    shotgun: ['dot', 'compensator', 'foregrip', 'extmag'],
+    sniper: ['suppressor', 'extmag'],
+    pistol: ['dot', 'suppressor', 'extmag'],
+  },
+
+  // Gear and consumables.
+  gear: {
+    hearing: 46,          // metres an unsuppressed shot carries to soldiers
+    plateArmour: 50, plateTime: 1.2, maxPlates: 4,
+    medHeal: 65, medTime: 2.6, maxMeds: 3,
+    maxFrags: 3, maxSmokes: 2,
+    fragFuse: 3.0, fragRadius: 8, fragCore: 2.5, fragDamage: 150,
+    smokeDelay: 1.4, smokeTime: 18, smokeRadius: 5.5,
+    throwSpeed: 16,
   },
 
   // Four enemy loadouts. Distinct silhouette, speed and behaviour each.

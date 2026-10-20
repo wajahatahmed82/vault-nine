@@ -9,6 +9,7 @@ import { Robot, pickType, STATE as AI } from './enemies.js';
 import { FX } from './fx.js';
 import { rayBox } from './collide.js';
 import { buildNav } from './nav.js';
+import { Gear } from './gear.js';
 import * as audio from './audio.js';
 import * as settings from './settings.js';
 
@@ -51,6 +52,7 @@ export class Game {
     // mid-air above the basement.
     this.weapons.floorAt = (x, z, hintY) => this.player.groundAt(x, z, (hintY === undefined ? 0 : hintY));
     this.fx = new FX(this.scene, this.camera);
+    this.gear = new Gear(this);
     this.decals = new Decals(this.scene);
     // What each world material is made of, for impact marks, dust and sound.
     const M = built.mats;
@@ -173,7 +175,40 @@ export class Game {
       this.setPowered(false);
       this.campaign.start(this.difficulty || 'normal', this.campaignFrom || 'town');
     }
+    this._stockGear();
     this.onStateChange(this.state);
+  }
+
+  // Loadout and crates for a fresh run. The campaign starts with one rifle and
+  // the sidearm and finds the rest; arcade modes keep every unlocked gun.
+  _stockGear() {
+    this.gear.reset(this.mode);
+    const W = this.weapons;
+    if (this.mode !== MODE.CAMPAIGN) {
+      W.clearLoadout();
+      const sp = this.spawnPoint;
+      this.gear.crate(sp.x + 2.4, sp.z + 1.6, [['plate'], ['frag'], ['smoke'], ['attachment', 'foregrip'], ['attachment', 'suppressor'], ['ammo']]);
+      return;
+    }
+    W.setLoadout(['rifle', null]);
+    W.switchTo('rifle', true);
+    const T = this.town;
+    if (this.campaign.fromTown && T) {
+      // beside the road where the walk in starts
+      this.gear.crate(-3, 312.5, [['attachment', 'suppressor'], ['plate'], ['ammo']]);
+      // in the police station, by the report
+      const pol = T.byTag('police');
+      if (pol && pol.tagItem) {
+        const q = T.local(pol, pol.tagItem.x + 1.4, pol.tagItem.z, 0);
+        this.gear.crate(q.x, q.z, [['weapon', 'sniper'], ['attachment', 'foregrip'], ['medkit']], q.y);
+      }
+      // inside the substation, by the breaker
+      const ss = T.spots.substation;
+      if (ss) this.gear.crate(ss.switchAt.x + 1.6, ss.switchAt.z - 1.5, [['frag'], ['smoke'], ['plate'], ['attachment', 'extmag']]);
+    } else {
+      const sp = this.spawnPoint;
+      this.gear.crate(sp.x + 2.4, sp.z + 1.6, [['weapon', 'smg'], ['plate'], ['frag'], ['attachment', 'suppressor']]);
+    }
   }
 
   pause() {
@@ -362,7 +397,7 @@ export class Game {
   // Line of sight against the collider boxes rather than the render meshes.
   // Raycasting merged geometry walks every triangle in the map, which at a
   // dozen robots was costing more than the entire render.
-  canSee(from, playerState) {
+  canSee(from, playerState, ignoreSmoke) {
     // aim at the player's head, wherever leaning or lying down has put it
     const ps = playerState;
     const tx = ps.x + (ps.leanX || 0) * 0.85, tz = ps.z + (ps.leanZ || 0) * 0.85;
@@ -371,6 +406,8 @@ export class Game {
     const dist = Math.hypot(dx, dy, dz);
     if (dist < 0.5) return true;
 
+    // smoke grenades block sight both ways
+    if (!ignoreSmoke && this.gear && this.gear.smokes.length && this.gear.smokeBlocks(from, { x: tx, y: ty, z: tz })) return false;
     // hills and the station bank hide people too
     for (let k = 1; k < 6; k++) {
       const t = k / 6;
@@ -403,99 +440,143 @@ export class Game {
 
   // ---------------- combat ----------------
 
+  // Nearest thing a shot from `origin` along `dir` hits within `far`: soldiers'
+  // hitboxes (unless `noRobots`), the station's meshes, the town's boxes and
+  // the ground. Returns { point, distance, object?, townHit?, normal? } or null.
+  traceShot(origin, dir, far, noRobots) {
+    this.ray.set(origin, dir);
+    this.ray.far = far;
+    let targets = this.blockers;
+    if (!noRobots) {
+      targets = this.blockers.slice();
+      for (const r of this.robots) if (!r.dead) targets.push(...r.hitboxes);
+    }
+    const hits = this.ray.intersectObjects(targets, false);
+    let hit = hits.length ? hits[0] : null;
+    const st = this.castStatic(origin, dir, hit ? hit.distance : far);
+    if (st) hit = { distance: st.distance, point: st.point, object: null, townHit: st, normal: st.normal };
+    else if (hit && noRobots) {
+      const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
+      hit.normal = n;
+    }
+    return hit;
+  }
+
+  // Damage, impact marks, sparks and sound for one hit. Returns what happened,
+  // so the caller can aggregate hit markers across shotgun pellets.
+  applyShotHit(hit, origin, dmgIn, quietMarker) {
+    const ud = hit.object ? hit.object.userData : null;
+    if (ud && ud.robot) {
+      const robot = ud.robot;
+      this.weapons.shotsHit++;
+      const dmg = dmgIn * ud.mul;
+      const res = robot.damage(dmg, ud.part);
+      const n = new THREE.Vector3().subVectors(origin, hit.point).normalize();
+      // dust and kit fragments, deliberately not blood
+      this.fx.sparkBurst(hit.point, n, ud.part === 'head' ? 8 : 5);
+      this.fx.puff(hit.point, 0.30, 0xd8cbb4);
+      if (res.killed) {
+        this.registerKill(robot, res.headshot, hit.point.clone());
+        // A man going down is loud. Nearby soldiers come to look; the ones
+        // closest treat it as contact rather than a noise.
+        this.alertNear(robot.root.position, 20, false);
+      } else {
+        // Being shot at and missed still gives away roughly where you are.
+        this.alertNear(robot.root.position, 12, false);
+        if (!quietMarker) {
+          audio.sfx[res.headshot || ud.part === 'head' ? 'headshot' : 'hit']();
+          this.onHit(ud.part === 'head' ? 'head' : 'body', hit.point.clone(), Math.round(dmg));
+        }
+      }
+      return { robot: true, dmg, killed: res.killed, head: res.headshot || ud.part === 'head' };
+    }
+    let n, kind;
+    // windows shatter, cars alarm, the fuel car counts its hits
+    if (hit.townHit && this.life && this.life.onBulletHit({ col: hit.townHit.col, point: hit.point })) return { robot: false };
+    if (hit.townHit) {
+      n = hit.townHit.normal;
+      kind = hit.townHit.kind;
+    } else {
+      n = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0);
+      // Merged statics have identity transforms, but doors and props may not.
+      n.transformDirection(hit.object.matrixWorld);
+      kind = this.surface.get(hit.object.material) || 'masonry';
+    }
+    this.decals.add(hit.point, n, kind);
+    if (kind === 'metal') {
+      this.fx.sparkBurst(hit.point, n, 7);
+      this.fx.puff(hit.point, 0.18, 0x9a958c);
+      audio.sfx.impactMetal();
+    } else if (kind === 'wood') {
+      this.fx.puff(hit.point, 0.30, 0x8a6a46);
+      audio.sfx.impact();
+    } else if (kind === 'glass') {
+      this.fx.sparkBurst(hit.point, n, 3);
+      audio.sfx.impactGlass();
+    } else {
+      this.fx.puff(hit.point, 0.42, 0xb3aa98);
+      this.fx.sparkBurst(hit.point, n, 2);
+      audio.sfx.impact();
+    }
+    return { robot: false };
+  }
+
   tryFire() {
     const dirs = this.weapons.fire(this.scene, this.input.firing);
     if (!dirs) return;
+    const W = this.weapons;
 
-    this.fx.addShake(0.010 * (1 - this.weapons.ads * 0.45) * (this.weapons.spec.pellets > 1 ? 2.2 : 1));
+    this.fx.addShake(0.010 * (1 - W.ads * 0.45) * (W.spec.pellets > 1 ? 2.2 : 1));
 
     const origin = new THREE.Vector3();
     this.camera.getWorldPosition(origin);
     const muzzle = new THREE.Vector3();
-    this.weapons.model.muzzle.getWorldPosition(muzzle);
+    W.model.muzzle.getWorldPosition(muzzle);
 
     if (this.life) this.life.onShot(origin);
-    const targets = this.blockers.slice();
-    for (const r of this.robots) if (!r.dead) targets.push(...r.hitboxes);
+    // Gunfire carries. Soldiers in earshot come to the shot; a suppressor
+    // shrinks the radius to about a fifth.
+    this.alertNear(origin, CFG.gear.hearing * W.noise, false);
 
-    const range = this.weapons.spec.range;
-    const W = this.weapons;
+    const range = W.spec.range;
+    const vel = W.spec.velocity || 0;
     // Tracers on every third round of an automatic, every shot otherwise --
     // readable without turning a spray into a laser show.
     const tracerShot = !W.spec.auto || W.shotsFired % 3 === 1;
     let pelletTracers = 0;
     // a thin wisp off the muzzle
-    if (W.shotsFired % (W.spec.auto ? 2 : 1) === 0) this.fx.puff(muzzle, 0.10, 0xb9b2a6);
+    if (W.shotsFired % (W.spec.auto ? 2 : 1) === 0 && !W.suppressed) this.fx.puff(muzzle, 0.10, 0xb9b2a6);
     let anyHit = false, anyKill = false, anyHead = false;
     let hitPoint = null, dealt = 0;
+    const dmg = W.damage;
 
     for (const dir of dirs) {
-      this.ray.set(origin, dir);
-      this.ray.far = range;
-      const hits = this.ray.intersectObjects(targets, false);
-      const st = this.castStatic(origin, dir, hits.length ? hits[0].distance : range);
-      if (st) hits.unshift({ distance: st.distance, point: st.point, object: null, townHit: st });
+      // Rifle rounds fly: inside 50 m the shot is resolved at once (drop there
+      // is a few millimetres); past it the round becomes a projectile with
+      // travel time and drop. The sight is zeroed: the barrel points a hair
+      // up so the round crosses the line of sight at the zero range.
+      const near = vel ? Math.min(range, 50) : range;
+      const hit = this.traceShot(origin, dir, near);
       const drawTracer = tracerShot && (W.spec.pellets === 1 || pelletTracers++ < 2);
-      if (!hits.length) {
-        if (drawTracer) this.fx.tracer(muzzle, origin.clone().addScaledVector(dir, range));
+      if (!hit) {
+        if (vel && range > 50) {
+          const t50 = 50 / vel;
+          const elev = Math.atan((9.81 * W.zero) / (2 * vel * vel));
+          const v = dir.clone().multiplyScalar(vel);
+          v.y += vel * elev - 9.81 * t50;
+          const p = origin.clone().addScaledVector(dir, 50);
+          p.y += 50 * elev - 0.5 * 9.81 * t50 * t50;
+          this.gear.spawnRound(p, v, dmg, W.current);
+          if (drawTracer) this.fx.tracer(muzzle, p);
+        } else if (drawTracer) this.fx.tracer(muzzle, origin.clone().addScaledVector(dir, range));
         continue;
       }
-      const hit = hits[0];
       if (drawTracer) this.fx.tracer(muzzle, hit.point);
-      const ud = hit.object ? hit.object.userData : null;
-
-      if (ud && ud.robot) {
-        const robot = ud.robot;
-        this.weapons.shotsHit++;
-        const dmg = this.weapons.damage * ud.mul;
-        const res = robot.damage(dmg, ud.part);
-        dealt += dmg;
-        hitPoint = hit.point.clone();
-        anyHit = true;
-        const n = new THREE.Vector3().subVectors(origin, hit.point).normalize();
-        // dust and kit fragments, deliberately not blood
-        this.fx.sparkBurst(hit.point, n, ud.part === 'head' ? 8 : 5);
-        this.fx.puff(hit.point, 0.30, 0xd8cbb4);
-        if (res.killed) {
-          anyKill = true;
-          if (res.headshot) anyHead = true;
-          this.registerKill(robot, res.headshot, hit.point.clone());
-          // A man going down is loud. Nearby soldiers come to look; the ones
-          // closest treat it as contact rather than a noise.
-          this.alertNear(robot.root.position, 20, false);
-        } else {
-          // Being shot at and missed still gives away roughly where you are.
-          this.alertNear(robot.root.position, 12, false);
-        }
-      } else {
-        let n, kind;
-        // windows shatter, cars alarm, the fuel car counts its hits
-        if (hit.townHit && this.life && this.life.onBulletHit({ col: hit.townHit.col, point: hit.point })) continue;
-        if (hit.townHit) {
-          n = hit.townHit.normal;
-          kind = hit.townHit.kind;
-        } else {
-          n = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0);
-          // Merged statics have identity transforms, but doors and props may not.
-          n.transformDirection(hit.object.matrixWorld);
-          kind = this.surface.get(hit.object.material) || 'masonry';
-        }
-        this.decals.add(hit.point, n, kind);
-        if (kind === 'metal') {
-          this.fx.sparkBurst(hit.point, n, 7);
-          this.fx.puff(hit.point, 0.18, 0x9a958c);
-          audio.sfx.impactMetal();
-        } else if (kind === 'wood') {
-          this.fx.puff(hit.point, 0.30, 0x8a6a46);
-          audio.sfx.impact();
-        } else if (kind === 'glass') {
-          this.fx.sparkBurst(hit.point, n, 3);
-          audio.sfx.impactGlass();
-        } else {
-          this.fx.puff(hit.point, 0.42, 0xb3aa98);
-          this.fx.sparkBurst(hit.point, n, 2);
-          audio.sfx.impact();
-        }
+      const r = this.applyShotHit(hit, origin, dmg, true);
+      if (r.robot) {
+        dealt += r.dmg; hitPoint = hit.point.clone(); anyHit = true;
+        if (r.killed) anyKill = true;
+        if (r.head) anyHead = true;
       }
     }
 
@@ -530,6 +611,7 @@ export class Game {
     w.reserve[w.current] = Math.min(w.spec.reserve, w.reserve[w.current] + give);
 
     this.fx.explode(point, 0xc9bda6);
+    if (this.gear) this.gear.dropFrom(robot);
     audio.sfx.robotDeath();
     audio.sfx.killConfirm(headshot);
     this.onKill({ headshot, point, type: robot.type, name: robot.spec.name, mult: this.multiplier });
@@ -626,9 +708,20 @@ export class Game {
     this.weapons.triggerHeld = inp.firing;
     this.weapons.wantAds = inp.ads;
     if (inp.reload) this.weapons.startReload();
-    if (inp.switchTo === 'next') this.weapons.nextWeapon(1);
+    if (inp.frag) this.gear.throw('frag');
+    if (inp.smoke) this.gear.throw('smoke');
+    if (inp.plate) this.gear.usePlate();
+    if (inp.medkit) this.gear.useMedkit();
+    if (inp.zero && this.weapons.cycleZero(inp.zero)) audio.sfx.zero();
+    if (inp.inventory && this.onInventory) this.onInventory();
+    // sprinting puts the plate or medkit away unfinished
+    if (this.player.state.sprinting && this.weapons.itemT > 0 && this.weapons.itemKind !== 'throw') {
+      this.weapons.itemT = 0; this.weapons.itemKind = null;
+    }
+    if (typeof inp.switchTo === 'string' && inp.switchTo.startsWith('slot:')) this.weapons.switchSlot(+inp.switchTo.slice(5));
+    else if (inp.switchTo === 'next') this.weapons.nextWeapon(1);
     else if (inp.switchTo === 'prev') this.weapons.nextWeapon(-1);
-    else if (inp.switchTo) this.weapons.switchTo(inp.switchTo);
+    else if (inp.switchTo && !inp.switchTo.startsWith('slot:')) this.weapons.switchTo(inp.switchTo);
     if (this.weapons.mag === 0 && !this.weapons.busy && this.weapons.pool > 0) {
       this.weapons.startReload();
     }
@@ -724,7 +817,10 @@ export class Game {
       this._timeAttackFlow(dt);
     } else {
       this._survivalFlow(dt);
+      this._lootPrompt(inp);
+      this._interactHeld = !!(inp && inp.interact);
     }
+    this.gear.update(dt);
 
     // ---- health regen ----
     if (this.hurtT > 0) this.hurtT -= dt;
@@ -742,19 +838,18 @@ export class Game {
 
     this.campaign.update(dt);
 
-    // interaction prompt + use
+    // interaction prompt + use; loot only when no story item is in reach
     const item = this.campaign.interact.pick(this.camera, p);
     if (item) {
       const locked = item.needs && this.campaign.keycard < item.needs;
       this.onPrompt(locked ? (item.lockedPrompt || 'LOCKED') : item.prompt, locked);
-    } else {
-      this.onPrompt(null, false);
     }
     if (inp && inp.interact && item && !this._interactHeld) {
       const r = this.campaign.interact.use(item, { keycard: this.campaign.keycard });
       if (!r.ok && r.message) this.onPrompt(r.message, true);
       else if (r.ok) audio.sfx.ui && audio.sfx.ui();
     }
+    if (!item) this._lootPrompt(inp);
     this._interactHeld = !!(inp && inp.interact);
   }
 
@@ -812,6 +907,13 @@ export class Game {
     }
   }
 
+  // F on a weapon or attachment lying in reach.
+  _lootPrompt(inp) {
+    const it = this.gear.pickable();
+    this.onPrompt(it ? this.gear.promptFor(it) : null, false);
+    if (it && inp && inp.interact && !this._interactHeld) this.gear.take(it);
+  }
+
   _survivalFlow(dt) {
     if (this.waveActive) {
       if (this.queued > 0 && this.robots.length < CFG.wave.maxAlive) {
@@ -853,7 +955,7 @@ export class Game {
   _fov(dt) {
     const c = CFG.camera;
     const spec = this.weapons.spec;
-    let want = THREE.MathUtils.lerp(this.baseFov, spec.fovAds, this.weapons.ads);
+    let want = THREE.MathUtils.lerp(this.baseFov, this.weapons.fovAds, this.weapons.ads);
     if (this.player.state.sprinting && this.weapons.ads < 0.2) want = this.baseFov + 8;
     this.fovCurrent = THREE.MathUtils.damp(this.fovCurrent, want, 11, dt);
     if (Math.abs(this.camera.fov - this.fovCurrent) > 0.02) {

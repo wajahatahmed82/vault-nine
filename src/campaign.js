@@ -562,6 +562,7 @@ export class Campaign {
       doors: this.doors.map((d) => d.open),
       enemies: this.stageEnemies.map((e) => ({ ...e })),
       weapons: this.game.weapons.snapshot ? this.game.weapons.snapshot() : null,
+      gear: this.game.gear ? this.game.gear.snapshot() : null,
     };
     this.onCheckpoint(this.objective);
   }
@@ -605,6 +606,7 @@ export class Campaign {
     p.vx = p.vy = p.vz = 0;
     p.health = Math.max(c.player.health, CFG.player.maxHealth * 0.6);
     if (c.weapons && g.weapons.restore) g.weapons.restore(c.weapons);
+    if (c.gear && g.gear) g.gear.restore(c.gear);
     g.player.applyToCamera(0);
     return true;
   }

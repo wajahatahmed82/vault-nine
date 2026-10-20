@@ -99,6 +99,19 @@ export class HUD {
     input.bindHold($('btn-leanr'), 'leanR');
     input.bindTap($('btn-prone'), () => { this.input.queue.prone++; });
     input.bindTap($('btn-tac'), () => { this.input.queue.tactical++; });
+    input.bindTap($('btn-nade'), () => { this.input.queue.frag++; });
+    input.bindTap($('btn-bag'), () => { this.input.queue.inventory++; });
+    game.gear.onToast = (msg) => this.toast(msg);
+    game.onInventory = () => { this.panel = 'inventory'; game.pause(); };
+    // Tab or Esc closes the pack. Gameplay input is off while paused, so the
+    // keys are caught here; resume() clears the Esc the input layer queued.
+    window.addEventListener('keydown', (e) => {
+      if (this.panel !== 'inventory' || game.state !== STATE.PAUSED) return;
+      if (e.code !== 'Tab' && e.code !== 'Escape') return;
+      e.preventDefault();
+      this.panel = 'main';
+      game.resume();
+    });
     this.tacBtn = $('btn-tac');
     this.useBtn = $('btn-interact');
     this.breathBtn = $('btn-breath');
@@ -273,7 +286,8 @@ export class HUD {
       const px = Math.min(150, cone * window.innerHeight * 1.4) + 5;
       this.cross.style.setProperty('--gap', px.toFixed(1) + 'px');
       this.cross.style.opacity = (1 - w.ads * 0.95).toFixed(2);
-      $('scope').classList.toggle('on', w.ads > 0.75 && s.shape.optic === 'scope');
+      $('scope').classList.toggle('on', w.ads > 0.75 && w.scoped);
+      this.gearHud(w, dt);
 
       const rl = $('reload-ring');
       if (w.reloading > 0) {
@@ -281,12 +295,16 @@ export class HUD {
         rl.style.setProperty('--p', (1 - w.reloading / w.reloadTotal).toFixed(3));
       } else rl.classList.remove('show');
 
-      // weapon slots
+      // weapon slots, numbered as the number keys pick them
+      const list = w.slotList();
       for (const id of w.ids) {
         const el = $('slot-' + id);
         if (!el) continue;
+        const i = list.indexOf(id);
         el.classList.toggle('active', w.current === id);
-        el.classList.toggle('locked', !w.unlocked(id));
+        el.classList.toggle('locked', i < 0);
+        el.style.display = w.owned && i < 0 ? 'none' : '';
+        el.firstChild.textContent = i >= 0 ? String(i + 1) : '-';
       }
     }
 
@@ -321,6 +339,76 @@ export class HUD {
     }
   }
 
+  // Counts, zeroing, the item-in-hand bar and pickup toasts.
+  gearHud(w, dt) {
+    const C = this.game.gear.counts;
+    for (const k of ['plates', 'meds', 'frags', 'smokes']) {
+      const el = $('g-' + k);
+      el.lastChild.textContent = C[k];
+      el.classList.toggle('none', !C[k]);
+    }
+    const z = $('zero');
+    const zs = w.spec.zeroing;
+    z.classList.toggle('hidden', !zs);
+    if (zs) z.children[0].textContent = w.zero;
+    const a = w.attOf();
+    $('atts').textContent = ['optic', 'muzzle', 'grip', 'mag'].map((k) => a[k] && CFG.attachments[a[k]].name).filter(Boolean).join(' · ');
+    const ib = $('itembar');
+    if (w.itemT > 0 && w.itemKind !== 'throw') {
+      ib.classList.add('on');
+      $('item-name').textContent = w.itemKind === 'plate' ? 'ARMOUR PLATE' : 'MEDKIT';
+      ib.style.setProperty('--p', (1 - w.itemT / w.itemTotal).toFixed(3));
+    } else ib.classList.remove('on');
+    if (this.toastT > 0) {
+      this.toastT -= dt;
+      if (this.toastT <= 0) $('toast').classList.remove('on');
+    }
+  }
+
+  toast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('on');
+    this.toastT = 2.2;
+  }
+
+  // ---- inventory: the loadout in hand, attachments and consumables ----
+  inventoryPanel() {
+    const g = this.game, w = g.weapons, C = g.gear.counts, G = CFG.gear, ps = g.player.state;
+    const slotNames = { optic: 'OPTIC', muzzle: 'MUZZLE', grip: 'GRIP', mag: 'MAG' };
+    const list = w.slotList();
+    const rows = list.map((id, n) => {
+      const a = w.att[id];
+      const fits = CFG.fits[id] || [];
+      const cells = Object.keys(slotNames).filter((sl) => fits.some((k) => CFG.attachments[k].slot === sl)).map((sl) => {
+        const on = a[sl];
+        const spares = [...new Set(w.spare)].filter((k) => fits.includes(k) && CFG.attachments[k].slot === sl && k !== on);
+        return `<span class="att">${slotNames[sl]}:
+          ${on ? `<button class="chip" data-a="inv-off" data-id="${id}" data-slot="${sl}">${CFG.attachments[on].name} &times;</button>` : '<i>&mdash;</i>'}
+          ${spares.map((k) => `<button class="chip off" data-a="inv-on" data-id="${id}" data-k="${k}">+ ${CFG.attachments[k].name}</button>`).join('')}</span>`;
+      }).join('');
+      return `<div class="row"><b>${n + 1} &middot; ${CFG.weapons[id].name}${w.current === id ? ' (IN HAND)' : ''}</b>
+        <i>${w.ammo[id]} / ${w.reserve[id]}</i><div style="width:100%">${cells}</div></div>`;
+    }).join('');
+    const loose = w.spare.filter((k) => !list.some((id) => (CFG.fits[id] || []).includes(k)));
+    const item = (label, n, max, act) => `<div class="row"><span>${label}</span><i>${n} / ${max}</i>
+      ${act ? `<button class="chip${n ? '' : ' off'}" data-a="${act}">USE</button>` : ''}</div>`;
+    return this.el(`
+      <div class="panel wide inv fade">
+        <div class="h1">PACK</div>
+        <div class="sub">HEALTH ${Math.ceil(ps.health)} &middot; ARMOUR ${Math.ceil(ps.armor)}</div>
+        <div class="h2">WEAPONS</div>
+        ${rows}
+        ${loose.length ? `<div class="row"><i>Carried, fits nothing in hand: ${loose.map((k) => CFG.attachments[k].name).join(', ')}</i></div>` : ''}
+        <div class="h2">GEAR</div>
+        ${item('Armour plate (B) &middot; +' + G.plateArmour + ' armour', C.plates, G.maxPlates, 'inv-plate')}
+        ${item('Medkit (H) &middot; +' + G.medHeal + ' health', C.meds, G.maxMeds, 'inv-med')}
+        ${item('Frag grenade (G)', C.frags, G.maxFrags)}
+        ${item('Smoke grenade (T)', C.smokes, G.maxSmokes)}
+        <button class="btn primary" data-a="resume">Back (Tab)</button>
+      </div>`);
+  }
+
   // ---------------- screens ----------------
 
   render(state) {
@@ -333,7 +421,8 @@ export class HUD {
     // Panel overrides win over game state, otherwise Loadout and Settings are
     // unreachable from the pause and game-over screens.
     let node;
-    if (this.panel === 'loadout') node = this.loadoutPanel();
+    if (this.panel === 'inventory' && state === STATE.PAUSED) node = this.inventoryPanel();
+    else if (this.panel === 'loadout') node = this.loadoutPanel();
     else if (this.panel === 'settings') node = this.settingsPanel(state === STATE.PAUSED);
     else if (state === STATE.PAUSED) node = this.pausePanel();
     else if (state === STATE.OVER) node = this.overPanel();
@@ -396,7 +485,8 @@ export class HUD {
         </div>
         <div class="hint">
           <b>WASD</b> move &middot; <b>Shift</b> sprint (twice: dash) &middot; <b>Ctrl</b> crouch / slide &middot; <b>Z</b> prone &middot; <b>Space</b> jump / vault<br>
-          <b>Q E</b> lean &middot; <b>F</b> use &middot; <b>Mouse</b> aim &middot; <b>RMB</b> sights &middot; <b>R</b> reload &middot; <b>1-4</b> weapons &middot; <b>Esc</b> pause<br>
+          <b>Q E</b> lean &middot; <b>F</b> use &middot; <b>Mouse</b> aim &middot; <b>RMB</b> sights &middot; <b>R</b> reload &middot; <b>1-5</b> weapons &middot; <b>Esc</b> pause<br>
+          <b>G</b> frag &middot; <b>T</b> smoke &middot; <b>B</b> armour plate &middot; <b>H</b> medkit &middot; <b>Tab</b> pack &middot; <b>[ ]</b> sniper zero<br>
           On phone: left thumb moves, right thumb aims, buttons bottom-right.
         </div>
       </div>`);
@@ -626,6 +716,10 @@ export class HUD {
           case 'restart': this.panel = 'main'; g.start(g.mode); break;
           case 'quit': this.panel = 'main'; g.toMenu(); break;
           case 'defaults': settings.reset(); g.applySettings(); this.render(g.state); break;
+          case 'inv-on': g.weapons.mount(b.dataset.id, b.dataset.k); this.render(g.state); break;
+          case 'inv-off': g.weapons.unmount(b.dataset.id, b.dataset.slot); this.render(g.state); break;
+          case 'inv-plate': this.panel = 'main'; g.resume(); g.gear.usePlate(); break;
+          case 'inv-med': this.panel = 'main'; g.resume(); g.gear.useMedkit(); break;
           case 'equip':
             g.weapons.switchTo(b.dataset.id, true);
             this.render(g.state);

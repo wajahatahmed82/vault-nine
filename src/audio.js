@@ -102,7 +102,19 @@ const GUNS = {
 };
 
 export const sfx = {
-  shot(id) { (GUNS[id] || GUNS.rifle)(); },
+  // A suppressed shot is a dull cough, not silence: still audible close by.
+  shot(id, suppressed) {
+    if (!suppressed) { (GUNS[id] || GUNS.rifle)(); return; }
+    noise({ dur: 0.09, vol: 0.16, type: 'lowpass', f0: 1400, f1: 300, q: 0.8 });
+    noise({ dur: 0.03, vol: 0.06, type: 'highpass', f0: 3200, q: 0.7 });
+  },
+  pickup() { tone({ type: 'triangle', f0: 520, f1: 780, dur: 0.07, vol: 0.1 }); noise({ dur: 0.05, vol: 0.06, type: 'bandpass', f0: 1800, q: 1.2 }); },
+  plate() { noise({ dur: 0.18, vol: 0.14, type: 'bandpass', f0: 900, f1: 500, q: 1.4 }); tone({ type: 'square', f0: 140, f1: 110, dur: 0.1, vol: 0.05, delay: 0.15 }); },
+  medkit() { noise({ dur: 0.35, vol: 0.08, type: 'highpass', f0: 2500, f1: 1800, q: 0.7 }); tone({ type: 'sine', f0: 660, f1: 880, dur: 0.18, vol: 0.06, delay: 0.3 }); },
+  pin() { tone({ type: 'triangle', f0: 2400, f1: 2000, dur: 0.05, vol: 0.07 }); noise({ dur: 0.06, vol: 0.05, type: 'highpass', f0: 4000, q: 1 }); },
+  throwIt() { noise({ dur: 0.12, vol: 0.07, type: 'bandpass', f0: 700, f1: 300, q: 0.7 }); },
+  bounce(vol = 1) { tone({ type: 'triangle', f0: 900, f1: 600, dur: 0.06, vol: 0.06 * vol }); },
+  zero() { tone({ type: 'square', f0: 1800, f1: 1700, dur: 0.025, vol: 0.05 }); },
   dryFire() {
     noise({ dur: 0.03, vol: 0.26, type: 'highpass', f0: 3200, q: 1.5 });
     tone({ type: 'square', f0: 900, f1: 300, dur: 0.025, vol: 0.10 });

@@ -130,7 +130,7 @@ function billboards(scene, count, additive) {
 export function createLife(game, opts = {}) {
   const scene = game.scene, town = game.town, sp = town.spots;
   const cam = game.camera;
-  const smoke = billboards(scene, 260, false);
+  const smoke = billboards(scene, 360, false);   // room for a smoke grenade's wall
   const glow = billboards(scene, 140, true);
   const tmp = new THREE.Vector3();
   // scratch objects reused every frame -- nothing allocates in update()

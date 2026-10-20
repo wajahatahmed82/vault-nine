@@ -152,6 +152,20 @@ Kill alerts squad within 20m (soft), a non-lethal hit within 12m.
 
 `__rs.spawnSoldier(type, x, z, yaw)` places a soldier from tools without importing enemies.js, so tests also run on the single-file build.
 
+## Gear and ballistics (Phase 3)
+
+`src/gear.js` (`Gear`): loot items (cap 40) with walk-over pickup for ammo/plates/meds/grenades and F for weapons/attachments (`pickable`, `promptFor`, `take`), crates, soldier drops (`dropFrom`), flying rounds, grenades with bounce, smoke volumes, plate/medkit use. `game.traceShot(origin, dir, far, noRobots)` is the one hit query (robot hitboxes, station meshes, `castStatic`); `game.applyShotHit` does damage, marks and sound. `tryFire` resolves inside 50 m at once; past it a weapon with `velocity` (rifle 600, sniper 760 m/s) spawns a round 50 m out with drop pre-applied, aimed up by the zero angle atan(g*Z/2v^2). Rounds live until they reach the weapon's range.
+
+Noise: every shot calls `alertNear(origin, CFG.gear.hearing * W.noise)`; hearing 46 m, suppressor noise 0.22 (about 10 m). Smoke blocks `canSee` (pass `ignoreSmoke` for blast checks). Frag: 2.5 m full-damage core, falls to 0 at 8 m, LOS-shielded.
+
+Weapons: `CFG.attachments` stat multipliers via `W.attMul`, `CFG.fits` per weapon, `W.att[id]` slots, `W.spare` carried. `W.owned === null` is arcade (everything unlocked); the campaign calls `setLoadout(['rifle', null])` and `give()` fills/swaps slots. Number keys queue `'slot:N'` over `W.slotList()`. Pistol is the always-owned sidearm (`sidearm: true`). Viewmodel hides behind a scope overlay (`W.scoped`). Checkpoints save `gear.snapshot()` (counts only; taken crate items stay taken). Pack screen = `hud.inventoryPanel()` (Tab, pauses).
+
+    const g = await import('/tools/geartest.js'); g.run(__rs)   // 20 checks incl. both acceptance checks
+
+- **Long-range test targets must be pinned.** `game.update` settles every soldier onto `groundAt`; a target placed in mid-air drops to the street before the round arrives. geartest freezes it and patches `groundAt` locally.
+- **A pickup during the swap animation must retarget the swap.** `give()` sets `pendingSwap`, otherwise the gun just dropped stays in hand.
+- **Crates have no collider.** Check the spot is clear (`game.grid.segment`) before placing one; the first roadblock spot was inside a parked car.
+
 ## Mobile and Android
 
 Touch: contextual USE (`#btn-interact`, label = first word of the prompt, red LOCKED when keycard too low), BREATH when scoped, inspect, turn-sideways card in portrait, fullscreen + landscape lock from the start tap. `tools/mobiletest.js` (11 checks) includes a press-and-release with no frame between.

@@ -54,6 +54,11 @@ const PATTERNS = {
   sniper(i) {
     return [0.058 * (1 + seeded(i, 41) * 0.05), 0.0045 + seeded(i, 42) * 0.0015];
   },
+
+  // Pistol: a sharp flip per shot that settles fast.
+  pistol(i) {
+    return [0.017 * (1 + seeded(i, 51) * 0.08), 0.002 * seeded(i, 52)];
+  },
 };
 
 export function recoilKick(weaponId, shotIndex) {

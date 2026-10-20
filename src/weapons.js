@@ -48,6 +48,18 @@ export class WeaponSystem {
     this.models = {};
     this.ammo = {};
     this.reserve = {};
+    this.mats = mats;
+    // Attachments per weapon, one per slot. Spare ones the player carries but
+    // has not mounted live in `spare`.
+    this.att = {};
+    for (const id of this.ids) this.att[id] = { optic: null, muzzle: null, grip: null, mag: null };
+    this.spare = [];
+    // Ownership. `owned === null` means the arcade rule: every weapon your level
+    // has unlocked. The campaign sets a real loadout: two primaries + sidearm.
+    this.owned = null;
+    this.primaries = [null, null];
+    this.zeroIdx = 0;               // marksman zeroing step
+    this.itemT = 0; this.itemTotal = 0; this.itemKind = null;   // plate / medkit in hand
 
     for (const id of this.ids) {
       const spec = CFG.weapons[id];
@@ -164,7 +176,9 @@ export class WeaponSystem {
   // Checkpoints restore the loadout as it was, so reloading does not hand the
   // player a free refill or punish them with an empty gun.
   snapshot() {
-    return { current: this.current, ammo: { ...this.ammo }, reserve: { ...this.reserve } };
+    return { current: this.current, ammo: { ...this.ammo }, reserve: { ...this.reserve },
+      att: JSON.parse(JSON.stringify(this.att)), spare: [...this.spare],
+      owned: this.owned ? [...this.owned] : null, primaries: [...this.primaries] };
   }
 
   restore(s) {
@@ -172,12 +186,153 @@ export class WeaponSystem {
     this.current = s.current;
     this.ammo = { ...s.ammo };
     this.reserve = { ...s.reserve };
+    if (s.att) { this.att = JSON.parse(JSON.stringify(s.att)); for (const id of this.ids) this.refreshAttachments(id); }
+    if (s.spare) this.spare = [...s.spare];
+    if (s.owned !== undefined) { this.owned = s.owned ? new Set(s.owned) : null; this.primaries = [...(s.primaries || [null, null])]; }
+    for (const id of this.ids) this.models[id].gun.visible = id === this.current;
     this.reloading = 0;
     this.swapT = 0;
+    this.itemT = 0;
   }
 
   get pool() { return this.reserve[this.current]; }
-  get busy() { return this.reloading > 0 || this.swapT > 0; }
+  get busy() { return this.reloading > 0 || this.swapT > 0 || this.itemT > 0; }
+
+  // ---------- attachments ----------
+  // Combined multiplier for one stat across the mounted attachments.
+  attMul(stat, id = this.current) {
+    let m = 1;
+    const a = this.att[id];
+    if (!a) return 1;
+    for (const k of Object.values(a)) {
+      const spec = k && CFG.attachments[k];
+      if (spec && spec[stat] !== undefined) m *= spec[stat];
+    }
+    return m;
+  }
+  attOf(id = this.current) { return this.att[id] || {}; }
+  get noise() { return this.attMul('noise'); }
+  get suppressed() { return this.attOf().muzzle === 'suppressor'; }
+  // Scoped view: the marksman rifle's own scope or a mounted 4x.
+  get scoped() { return this.spec.shape.optic === 'scope' || this.attOf().optic === 'x4'; }
+  get fovAds() {
+    const z = this.attMul('zoom');
+    return this.spec.fovAds * this.attMul('fovMul') / z;
+  }
+  get adsTimeMul() { return this.attMul('adsTime'); }
+  get zero() {
+    const zs = this.spec.zeroing;
+    return zs ? zs[this.zeroIdx % zs.length] : 100;
+  }
+  cycleZero(dir) {
+    const zs = this.spec.zeroing;
+    if (!zs) return false;
+    this.zeroIdx = Math.max(0, Math.min(zs.length - 1, this.zeroIdx + dir));
+    return true;
+  }
+
+  // Mount an attachment on a weapon; whatever was in that slot goes to spare.
+  mount(id, key) {
+    const spec = CFG.attachments[key];
+    if (!spec || !(CFG.fits[id] || []).includes(key)) return false;
+    const a = this.att[id];
+    if (a[spec.slot]) this.spare.push(a[spec.slot]);
+    a[spec.slot] = key;
+    const i = this.spare.indexOf(key);
+    if (i >= 0) this.spare.splice(i, 1);
+    if (spec.slot === 'mag') this.ammo[id] = Math.min(this.ammo[id], this.magSizeOf(id));
+    this.refreshAttachments(id);
+    return true;
+  }
+  unmount(id, slot) {
+    const a = this.att[id];
+    if (!a || !a[slot]) return false;
+    this.spare.push(a[slot]);
+    a[slot] = null;
+    this.ammo[id] = Math.min(this.ammo[id], this.magSizeOf(id));
+    this.refreshAttachments(id);
+    return true;
+  }
+
+  // Small meshes on the viewmodel so you can see what is mounted.
+  refreshAttachments(id) {
+    const m = this.models[id];
+    if (!m) return;
+    if (m.attGroup) m.gun.remove(m.attGroup);
+    const g = new THREE.Group();
+    const a = this.att[id];
+    const dark = this.mats.gunMetal, poly = this.mats.gunPoly;
+    const mz = m.muzzle.position.z, my = m.muzzle.position.y;
+    const cyl = (r, len, mat, z, y = my) => {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 12), mat);
+      c.rotation.x = Math.PI / 2; c.position.set(0, y, z);
+      g.add(c);
+    };
+    if (a.muzzle === 'suppressor') cyl(0.026, 0.17, dark, mz - 0.085);
+    if (a.muzzle === 'compensator') cyl(0.024, 0.055, dark, mz - 0.025);
+    if (a.grip === 'foregrip') {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.085, 0.034), poly);
+      b.position.set(0, -0.062, mz * 0.55);
+      g.add(b);
+    }
+    if (a.optic === 'dot' && this.spec && CFG.weapons[id].shape.optic !== 'dot') {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.05), dark);
+      b.position.set(0, 0.032, -0.07); g.add(b);
+    }
+    if (a.optic === 'x2') cyl(0.019, 0.11, dark, -0.07, 0.04);
+    if (a.optic === 'x4') cyl(0.024, 0.18, dark, -0.07, 0.045);
+    m.mag.scale.y = a.mag === 'extmag' ? 1.45 : 1;
+    g.traverse((o) => o.layers.set(VIEW_LAYER));
+    m.gun.add(g);
+    m.attGroup = g;
+  }
+
+  // ---------- ownership and slots ----------
+  owns(id) {
+    if (CFG.weapons[id]?.sidearm) return true;
+    return this.owned ? this.owned.has(id) : this.unlocked(id);
+  }
+  // Weapons in number-key order.
+  slotList() {
+    if (this.owned) return [...this.primaries.filter(Boolean), 'pistol'];
+    return this.ids.filter((i) => !CFG.weapons[i].sidearm && this.unlocked(i)).concat('pistol');
+  }
+  switchSlot(n) {
+    const id = this.slotList()[n];
+    return id ? this.switchTo(id) : false;
+  }
+  // Campaign loadout: two primaries and the sidearm.
+  setLoadout(primaries) {
+    this.owned = new Set(primaries.filter(Boolean));
+    this.primaries = [primaries[0] || null, primaries[1] || null];
+    if (!this.owns(this.current)) this.switchTo(this.primaries[0] || 'pistol', true);
+  }
+  clearLoadout() { this.owned = null; this.primaries = [null, null]; }
+  // Pick up a weapon. Returns the weapon it replaced (to drop), or null.
+  give(id) {
+    if (!this.owned || this.owned.has(id) || CFG.weapons[id]?.sidearm) return null;
+    let slot = this.primaries.indexOf(null);
+    let dropped = null;
+    if (slot < 0) {
+      slot = this.primaries.indexOf(this.current);
+      if (slot < 0) slot = 1;
+      dropped = this.primaries[slot];
+      this.owned.delete(dropped);
+    }
+    this.primaries[slot] = id;
+    this.owned.add(id);
+    // mid-swap, retarget the swap so the dropped gun never ends up in hand
+    if (this.swapT > 0) this.pendingSwap = id;
+    else this.switchTo(id);
+    return dropped;
+  }
+
+  // ---------- consumables in hand ----------
+  useItem(kind, time) {
+    if (this.itemT > 0 || this.reloading > 0 || this.swapT > 0) return false;
+    this.itemKind = kind; this.itemT = time; this.itemTotal = time;
+    return true;
+  }
   // Hip cone right now, for the dynamic crosshair.
   get cone() {
     const s = this.spec;
@@ -189,15 +344,21 @@ export class WeaponSystem {
 
   // Upgrades are multipliers held by the progression system.
   up(stat) { return this.prog ? this.prog.upgradeMul(stat) : 1; }
-  get damage() { return this.spec.damage * this.up('damage'); }
-  get magSize() { return Math.round(this.spec.magSize * this.up('magazine')); }
+  get damage() { return this.spec.damage * this.up('damage') * this.attMul('damage'); }
+  get magSize() { return this.magSizeOf(this.current); }
+  magSizeOf(id) { return Math.round(CFG.weapons[id].magSize * this.up('magazine') * this.attMul('mag', id)); }
   get fireInterval() { return 60 / (this.spec.rpm * this.up('fireRate')); }
 
   resetAll() {
     for (const id of this.ids) {
+      this.att[id] = { optic: null, muzzle: null, grip: null, mag: null };
+      this.refreshAttachments(id);
       this.ammo[id] = Math.round(CFG.weapons[id].magSize * this.up('magazine'));
       this.reserve[id] = CFG.weapons[id].reserve;
     }
+    this.spare = [];
+    this.zeroIdx = 0;
+    this.itemT = 0; this.itemKind = null;
     this.switchTo('rifle', true);
     this.reloading = 0; this.swapT = 0; this.cooldown = 0;
     this.ads = 0; this.spread = this.spec.spreadHip;
@@ -210,7 +371,8 @@ export class WeaponSystem {
   }
 
   switchTo(id, instant) {
-    if (!CFG.weapons[id] || id === this.current || !this.unlocked(id)) return false;
+    // `instant` is the tools' and restores' path and skips ownership
+    if (!CFG.weapons[id] || id === this.current || (!instant && !this.owns(id))) return false;
     if (instant) {
       this.model.gun.visible = false;
       this.current = id;
@@ -227,7 +389,7 @@ export class WeaponSystem {
   }
 
   nextWeapon(dir) {
-    const avail = this.ids.filter((i) => this.unlocked(i));
+    const avail = this.slotList();
     const i = avail.indexOf(this.current);
     return this.switchTo(avail[(i + dir + avail.length) % avail.length]);
   }
@@ -328,10 +490,12 @@ export class WeaponSystem {
     this.sinceShot = 0;
     // Aiming down sights tames the pattern but does not change its shape.
     const tame = (1 - this.ads * 0.25) / rc;
-    this.pendingKickP += kickUp * tame;
-    this.pendingKickY += kickSide * tame;
-    this.accumP += kickUp * tame;
-    this.accumY += kickSide * tame;
+    // grip and compensator tame the pattern without changing its shape
+    const upM = this.attMul('recoilUp'), sideM = this.attMul('recoilSide');
+    this.pendingKickP += kickUp * tame * upM;
+    this.pendingKickY += kickSide * tame * sideM;
+    this.accumP += kickUp * tame * upM;
+    this.accumY += kickSide * tame * sideM;
 
     // Viewmodel kick: purely visual now, it no longer steers the shot.
     this.recoilPitch += s.recoilPitch / rc * (1 - this.ads * 0.28);
@@ -345,16 +509,16 @@ export class WeaponSystem {
     const m = this.model;
     this.flash.position.copy(m.muzzle.position).multiplyScalar(0.80);
     this.flashLight.position.copy(this.flash.position);
-    this.flash.visible = true;
+    this.flash.visible = !this.suppressed;
     this.flashMat.opacity = 0.7;
     this.flash.rotation.z = Math.random() * Math.PI;
     const fs = (0.8 + Math.random() * 0.55) * (s.pellets > 1 ? 1.5 : 1);
     this.flash.scale.set(fs, fs, fs);
     // accumulate toward a cap rather than slamming to full every round
-    this.flashLight.intensity = Math.min(2.2, this.flashLight.intensity + 1.5);
+    if (!this.suppressed) this.flashLight.intensity = Math.min(2.2, this.flashLight.intensity + 1.5);
 
     this._ejectShell(scene);
-    this.audio?.shot(this.current);
+    this.audio?.shot(this.current, this.suppressed);
 
     const acc = this.up('accuracy');
     const base = THREE.MathUtils.lerp(s.spreadHip, s.spreadAds, this.ads) / acc;
@@ -408,7 +572,7 @@ export class WeaponSystem {
     // ---- scope sway and held breath ----
     // Only the marksman rifle sways enough to matter; holding breath steadies
     // it for a few seconds, and holding too long makes it worse for a while.
-    const scoped = this.current === 'sniper' && this.ads > 0.6;
+    const scoped = this.scoped && this.ads > 0.6;
     this.swayT += dt;
     let swayAmt = 0;
     if (scoped) {
@@ -449,9 +613,13 @@ export class WeaponSystem {
       this.reloading -= dt;
       if (this.reloading <= 0) { this.reloading = 0; this._finishReload(); }
     }
+    if (this.itemT > 0) {
+      this.itemT -= dt;
+      if (this.itemT <= 0) { this.itemT = 0; const k = this.itemKind; this.itemKind = null; this.onItemDone && this.onItemDone(k); }
+    }
 
     const target = (this.wantAds && !this.busy) ? 1 : 0;
-    const rate = dt / CFG.camera.adsTime;
+    const rate = dt / (CFG.camera.adsTime * this.adsTimeMul);
     this.ads = THREE.MathUtils.clamp(this.ads + THREE.MathUtils.clamp(target - this.ads, -rate, rate), 0, 1);
 
     this.recoilPitch = THREE.MathUtils.damp(this.recoilPitch, 0, s.recoilRecover, dt);
@@ -479,7 +647,8 @@ export class WeaponSystem {
     pos.y += this.lagY * 0.024 * steady;
 
     // lower the weapon while swapping or sprinting
-    const swapDip = this.swapT > 0 ? Math.sin((1 - Math.abs(this.swapT - 0.21) / 0.21) * Math.PI / 2) : 0;
+    const swapDip = this.swapT > 0 ? Math.sin((1 - Math.abs(this.swapT - 0.21) / 0.21) * Math.PI / 2)
+      : this.itemT > 0 ? Math.sin(Math.min(1, (1 - this.itemT / this.itemTotal) * 4) * Math.PI / 2) * (this.itemT < 0.3 ? this.itemT / 0.3 : 1) : 0;
     const sprintDip = this.sprinting ? 1 : THREE.MathUtils.clamp(this.sprintOutT * 5, 0, 1);
     const dip = Math.max(swapDip, sprintDip * 0.8);
     pos.y -= dip * 0.16;
@@ -498,6 +667,8 @@ export class WeaponSystem {
 
     for (const id of this.ids) this.models[id].reticle.visible = false;
     this.model.reticle.visible = this.ads > 0.3;
+    // Behind a scope the overlay is the view; the gun model would sit in it.
+    this.model.gun.visible = !(this.scoped && this.ads > 0.75);
 
     this._reloadPose();
 
