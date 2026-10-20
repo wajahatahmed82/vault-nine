@@ -286,7 +286,8 @@ export class Enemy {
         break;
       case S2.SEARCH:
         if (this.alerted && canSee) this._set(S2.ALERT);
-        else if (this.stateT > 9) { this.alerted = false; this.awareness = 0; this._set(S2.IDLE); }
+        // town streets are longer than station corridors: keep looking longer
+        else if (this.stateT > (this.townSearch ? 20 : 9)) { this.alerted = false; this.awareness = 0; this._set(S2.IDLE); }
         break;
       case S2.RETREAT:
         if (this.stateT > 2.6 || this.hp / this.maxHp > 0.55) this._set(S2.CHASE);
@@ -469,14 +470,24 @@ export class Enemy {
 
     if (this.state !== S2.ATTACK) this.burstLeft = 0;
 
+    // In town, route round buildings instead of grinding into them: the game
+    // hands back the next waypoint when the straight line is blocked.
+    let onPath = false;
+    if (moving && ctx.navSteer && this.state !== S2.ATTACK && this.state !== S2.RETREAT) {
+      const wp = ctx.navSteer(this, pos.x + wantX, pos.z + wantZ, dt);
+      if (wp) { wantX = wp.x - pos.x; wantZ = wp.z - pos.z; onPath = true; }
+    }
+
     if (moving) {
       const len = Math.hypot(wantX, wantZ) || 1;
       let nx = wantX / len, nz = wantZ / len;
       const speed = this.speed * (this.state === S2.PATROL ? 0.80 : this.state === S2.ATTACK ? 0.7 : 1);
       const step = speed * dt;
 
-      // Fan out around obstructions rather than grinding into them.
-      if (ctx.blocked(pos.x + nx * 0.9, pos.z + nz * 0.9)) {
+      // Fan out around obstructions rather than grinding into them -- unless
+      // following a planned path, whose legs are already known to be clear;
+      // fanning out there pushed soldiers away from narrow gaps.
+      if (!onPath && ctx.blocked(pos.x + nx * 0.9, pos.z + nz * 0.9)) {
         let found = false;
         for (const sign of [this.strafeDir, -this.strafeDir]) {
           for (const ang of [0.6, 1.1, 1.7, 2.3]) {

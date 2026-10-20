@@ -39,8 +39,10 @@ export function applyVolumes() {
 }
 settings.onChange(applyVolumes);
 
+// A gain ramp to exactly 0 throws, and a throw inside the frame loop drops the
+// rest of that frame. Distance-scaled calls reach 0 out of earshot.
 function noise({ dur, vol, type = 'lowpass', f0, f1, q = 1, delay = 0, bus }) {
-  if (!ready) return;
+  if (!ready || !(vol > 0.0005)) return;
   const t = ctx.currentTime + delay;
   const src = ctx.createBufferSource();
   src.buffer = noiseBuf;
@@ -57,7 +59,7 @@ function noise({ dur, vol, type = 'lowpass', f0, f1, q = 1, delay = 0, bus }) {
 }
 
 function tone({ type = 'sine', f0, f1, dur, vol, delay = 0, bus }) {
-  if (!ready) return;
+  if (!ready || !(vol > 0.0005)) return;
   const t = ctx.currentTime + delay;
   const o = ctx.createOscillator();
   const g = ctx.createGain();
@@ -183,6 +185,59 @@ export const sfx = {
     noise({ dur: 1.0, vol: 0.15, type: 'lowpass', f0: 900, f1: 90, q: 0.8 });
   },
 };
+
+// ---- town sounds ----
+// `vol` scales with distance at the call site (0..1).
+export const townSfx = {
+  carAlarm(vol = 1) {
+    // two-tone whoop, eight seconds, scheduled in one go
+    for (let i = 0; i < 16; i++) {
+      tone({ type: 'square', f0: i % 2 ? 980 : 760, f1: i % 2 ? 760 : 980, dur: 0.45, vol: 0.05 * vol, delay: i * 0.5 });
+    }
+  },
+  explosion(vol = 1) {
+    noise({ dur: 1.6, vol: 0.55 * vol, type: 'lowpass', f0: 900, f1: 60, q: 0.7 });
+    noise({ dur: 0.3, vol: 0.35 * vol, type: 'highpass', f0: 1800, f1: 600, q: 0.7 });
+    tone({ type: 'sine', f0: 70, f1: 28, dur: 1.2, vol: 0.45 * vol });
+  },
+  spark(vol = 1) {
+    for (let i = 0; i < 4; i++) noise({ dur: 0.05 + Math.random() * 0.06, vol: 0.12 * vol, type: 'highpass', f0: 3000, f1: 1500, q: 2, delay: i * 0.05 });
+    tone({ type: 'sawtooth', f0: 120, f1: 118, dur: 0.25, vol: 0.03 * vol });
+  },
+  birds(vol = 1) {
+    for (let i = 0; i < 9; i++) tone({ type: 'sine', f0: 2600 + Math.random() * 1200, f1: 1800 + Math.random() * 900, dur: 0.08, vol: 0.04 * vol, delay: Math.random() * 0.9 });
+    for (let i = 0; i < 6; i++) noise({ dur: 0.06, vol: 0.05 * vol, type: 'bandpass', f0: 900, f1: 700, q: 1.5, delay: i * 0.07 });
+  },
+  glassShatter(vol = 1) {
+    for (let i = 0; i < 7; i++) tone({ type: 'triangle', f0: 3000 + Math.random() * 3000, f1: 1500, dur: 0.12 + Math.random() * 0.2, vol: 0.06 * vol, delay: Math.random() * 0.25 });
+    noise({ dur: 0.35, vol: 0.2 * vol, type: 'highpass', f0: 4000, f1: 2000, q: 0.8 });
+  },
+  fireCrackle(vol = 1) {
+    noise({ dur: 0.06, vol: 0.08 * vol, type: 'bandpass', f0: 1400 + Math.random() * 1600, f1: 900, q: 3 });
+  },
+};
+
+// Rain: a looping filtered noise bed, faded in and out.
+let rainSrc = null, rainGain = null;
+export function setRain(on) {
+  if (!ready) return;
+  if (on && !rainSrc) {
+    rainSrc = ctx.createBufferSource();
+    rainSrc.buffer = noiseBuf; rainSrc.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2400; f.Q.value = 0.4;
+    rainGain = ctx.createGain(); rainGain.gain.value = 0;
+    rainSrc.connect(f); f.connect(rainGain); rainGain.connect(sfxBus);
+    rainSrc.start();
+    rainGain.gain.setTargetAtTime(0.09, ctx.currentTime, 1.2);
+  } else if (!on && rainSrc) {
+    const src = rainSrc;
+    rainGain.gain.setTargetAtTime(0, ctx.currentTime, 0.8);
+    setTimeout(() => { try { src.stop(); } catch (e) { /* already stopped */ } }, 3000);
+    rainSrc = null;
+  }
+}
+// Muffle the rain indoors.
+export function rainLevel(v) { if (rainGain && ctx) rainGain.gain.setTargetAtTime(0.09 * v, ctx.currentTime, 0.3); }
 
 // ---- ambience: a slow industrial drone on the music bus ----
 let droneTimer = null;

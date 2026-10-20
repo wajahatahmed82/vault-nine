@@ -62,6 +62,8 @@ export function run(rs) {
   const record = (name, pass, detail) => out.push({ step: name, pass, ...detail });
 
   game.difficulty = 'normal';
+  // the original station mission; the town prologue has its own test
+  game.campaignFrom = 'station';
   game.start(MODE.CAMPAIGN);
   game.player.state.health = 1e9;
   step(1 / 60);

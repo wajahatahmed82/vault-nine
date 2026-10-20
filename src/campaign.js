@@ -13,6 +13,44 @@ import { Interactables } from './interact.js';
 // the level until objective 3. The first several minutes are an empty building.
 
 const STORY = {
+  townIntro: {
+    title: 'MERIDIAN RIDGE',
+    lines: [
+      'Contact with the research station stopped fourteen hours ago.',
+      'The town below it went quiet at the same time.',
+      "The road in is blocked by the town's own police. Nobody is manning it.",
+    ],
+  },
+  policeReport: {
+    title: 'INCIDENT REPORT — SGT. L. ORMOND',
+    lines: [
+      '21:40. Station staff evacuated through town by bus. Orderly.',
+      '02:15. Three unmarked vehicles came down Station Road without lights.',
+      '02:30. Power cut to the whole town from the substation. Not a fault.',
+      '02:50. Men in town. Not ours. Not theirs. I have sent everyone home.',
+    ],
+  },
+  substation: {
+    title: 'SUBSTATION — BREAKER 4',
+    lines: [
+      'The breaker has been pulled by hand and wired open.',
+      "You cut the wire and throw it. Below you, the town's lights come back one street at a time.",
+    ],
+  },
+  gatePass: {
+    title: "TOWN HALL — MAYOR'S OFFICE",
+    lines: [
+      'A station gate pass, issued to the mayor "for emergencies".',
+      'Under it, a letter from the station thanking the town for its discretion.',
+    ],
+  },
+  gateOpen: {
+    title: 'STATION ROAD',
+    lines: [
+      'The gate motor whines and the leaves swing in.',
+      "The car park beyond is full of the staff's cars. Nobody drove them away.",
+    ],
+  },
   intro: {
     title: 'MERIDIAN RIDGE RESEARCH STATION',
     lines: [
@@ -128,6 +166,109 @@ export class Campaign {
     // Two locked doors. A door is a mesh plus a collider we switch off, so
     // "unlocked" is one flag rather than a rebuild of the level.
     this.securityDoor = this._door(21.4, 0, -12, 1.8, 'z');
+    // the station's south gate onto Station Road, shut until the town hall pass
+    this.gateDoor = this._door(0, 0, 42, 6, 'x');
+    const T = g.town;
+    const tagged = (t) => (T ? T.byTag(t) : null);
+    const itemAt = (b, y = 1.0) => (b && b.tagItem ? T.local(b, b.tagItem.x, b.tagItem.z, y) : new THREE.Vector3(0, -50, 0));
+    const insideTag = (t) => {
+      const p = this.game.player.state;
+      const q = T && T.indoorAt(p.x, p.z, p.y);
+      return !!(q && q.b.tag === t);
+    };
+    const sp = T ? T.spots : {};
+    this.prologue = [
+      {
+        id: 'town',
+        text: 'Find out why Meridian Ridge went silent',
+        hint: 'The police station is on Main Street',
+        town: true,
+        enter: () => this.onLog(STORY.townIntro),
+        done: () => insideTag('police'),
+      },
+      {
+        id: 'report',
+        text: 'Read the incident report',
+        hint: 'Police station, the desks behind the counter',
+        town: true,
+        enter: () => {
+          this.interact.add({
+            id: 'policeReport', pos: itemAt(tagged('police')),
+            prompt: 'Read incident report',
+            onUse: () => {
+              this.onLog(STORY.policeReport);
+              this.flags.report = true;
+            },
+          });
+        },
+        done: () => !!this.flags.report,
+      },
+      {
+        id: 'substation',
+        text: 'Restore power at the substation',
+        hint: 'North-east, past the end of Ridge Road',
+        town: true,
+        enter: () => {
+          // first contact: a patrol on Main Street and a lookout on the square
+          // as you leave the police station, then the substation guards
+          this._spawn('assault', 6, 238, { route: [[6, 238], [6, 200], [30, 202], [6, 238]] });
+          this._spawn('scout', 24, 206, { yaw: Math.PI / 2, post: true });
+          const s = sp.substation;
+          if (s) {
+            this._spawn('assault', s.x - 6, s.z - 9, { yaw: Math.PI, post: true });
+            this._spawn('scout', s.x + 10, s.z - 9, { yaw: Math.PI, post: true });
+            this._spawn('assault', 150, 114, { route: [[150, 114], [118, 113], [150, 114]] });
+          }
+          this.interact.add({
+            id: 'breaker', pos: s ? new THREE.Vector3(s.switchAt.x, s.switchAt.y + 1.0, s.switchAt.z) : new THREE.Vector3(0, -50, 0),
+            prompt: 'Throw the breaker',
+            onUse: () => { this.onLog(STORY.substation); this.flags.townPower = true; this.game.townPower = true; },
+          });
+        },
+        done: () => !!this.flags.townPower,
+      },
+      {
+        id: 'gatepass',
+        text: 'Find the station gate pass in the town hall',
+        hint: 'Town hall, east side of the square',
+        town: true,
+        enter: () => {
+          this._spawn('assault', 30, 186, { yaw: Math.PI / 2, post: true });
+          this._spawn('elite', 54, 200, { yaw: Math.PI / 2, post: true });
+          this._spawn('scout', 18, 216, { route: [[18, 216], [40, 216], [40, 176], [18, 176], [18, 216]] });
+          // a marksman on a flat roof across Main Street from the square
+          const roof = T && T.buildings.find((b) => b.kind === 'shop' && b.roof === 'flat' && !b.enter && b.x < 0 && b.z > 222 && b.z < 250);
+          if (roof) {
+            const e = this._spawn('scout', roof.x, roof.z, { yaw: -Math.PI / 2, post: true });
+            e.root.position.y = roof.base + roof.H + 0.7;
+            this.stageEnemies[this.stageEnemies.length - 1].y = e.root.position.y;
+          }
+          this.interact.add({
+            id: 'gatePass', pos: itemAt(tagged('townhall')),
+            prompt: 'Take the gate pass',
+            onUse: () => { this.keycard = Math.max(this.keycard, 1); this.onLog(STORY.gatePass); },
+          });
+        },
+        done: () => this.keycard >= 1,
+      },
+      {
+        id: 'gate',
+        text: 'Open the station gate',
+        hint: 'Up Station Road, north of town',
+        town: true,
+        enter: () => {
+          this._spawn('assault', -3, 72, { yaw: 0, post: true });
+          this._spawn('scout', 4, 58, { yaw: 0, post: true });
+          this.interact.add({
+            id: 'gateDoor', pos: new THREE.Vector3(0, 1.0, 43.2),
+            prompt: 'Open the station gate', needs: 1,
+            lockedPrompt: 'LOCKED — GATE PASS REQUIRED',
+            onUse: () => { this._openDoor(this.gateDoor); this.onLog(STORY.gateOpen); },
+          });
+        },
+        done: () => this.gateDoor.open,
+      },
+    ];
     this.labDoor = this._door(-6, g.BASE_Y === undefined ? -3.6 : g.BASE_Y, -36, 1.8, 'x', -3.6);
 
     this.stages = [
@@ -135,7 +276,7 @@ export class Campaign {
         id: 'approach',
         text: 'Investigate the communications failure',
         hint: 'Approach the station',
-        enter: () => this.onLog(STORY.intro),
+        enter: () => { if (!this.fromTown) this.onLog(STORY.intro); },
         done: () => this._inArea(A.forecourt),
       },
       {
@@ -275,6 +416,8 @@ export class Campaign {
         done: () => this._nearAnchor(this.game.anchors.extraction, 4.5),
       },
     ];
+    this.stationStart = this.prologue.length;
+    this.stages = this.prologue.concat(this.stages);
   }
 
   _door(x, y, z, w, axis, baseY) {
@@ -343,6 +486,7 @@ export class Campaign {
     const g = this.game;
     const e = new Robot(type, x, z, 1);
     e.diff = this.diff;
+    e.townSearch = z > 47 || Math.abs(x) > 46;
     if (opts.route) e.setRoute(opts.route);
     else e.setPost(x, z, opts.yaw || 0);
     // Basement soldiers stand on the lower slab.
@@ -356,16 +500,29 @@ export class Campaign {
 
   // ------------------------------------------------------------ lifecycle
 
-  start(difficulty) {
+  // from: 'town' (the full mission, starting at the roadblock on Main Street)
+  // or 'station' (the original mission, starting in the station car park).
+  start(difficulty, from) {
     this.difficulty = difficulty || this.difficulty;
     this.active = true;
     this.keycard = 0;
     this.flags = {};
     this.interact.clear();
     this._closeAllDoors();
-    this.objIdx = -1;
     this.checkpoint = null;
     this.stageEnemies.length = 0;
+    this.fromTown = from !== 'station' && !!this.game.town;
+    if (this.fromTown) {
+      this.objIdx = -1;
+      this.game.townPower = false;
+      const p = this.game.player.state;
+      p.x = 0; p.z = 316; p.y = this.game.surfaceH(0, 316); p.yaw = 0; p.vx = p.vy = p.vz = 0;
+      this.game.player.applyToCamera(0);
+    } else {
+      this.objIdx = this.stationStart - 1;
+      this.game.townPower = true;
+      this._openDoor(this.gateDoor);
+    }
     this._advance();
   }
 
@@ -437,7 +594,11 @@ export class Campaign {
 
     // The stage's soldiers come back, because the player is replaying the fight.
     this.stageEnemies.length = 0;
-    for (const e of c.enemies) this._spawn(e.type, e.x, e.z, e.opts);
+    for (const e of c.enemies) {
+      const r = this._spawn(e.type, e.x, e.z, e.opts);
+      if (e.y !== undefined) { r.root.position.y = e.y; this.stageEnemies[this.stageEnemies.length - 1].y = e.y; }
+    }
+    this.game.townPower = !this.fromTown || !!this.flags.townPower;
 
     const p = g.player.state;
     p.x = c.player.x; p.y = c.player.y; p.z = c.player.z; p.yaw = c.player.yaw;

@@ -486,6 +486,10 @@ export class HUD {
         ${slider('renderScale', 'Resolution Scale', 0.5, 2.0, 0.05, (v) => v.toFixed(2) + 'x')}
         ${choice('effects', 'Effects Detail', ['low', 'medium', 'high'])}
         ${choice('viewDistance', 'View Distance', ['near', 'medium', 'far'])}
+        ${choice('postFx', 'Post Effects', ['off', 'light', 'full'])}
+        <div class="sec">WORLD</div>
+        ${choice('timeOfDay', 'Time of Day', ['day', 'dusk', 'night'])}
+        ${choice('weather', 'Weather', ['clear', 'rain'])}
         ${toggle('antialias', 'Anti-Aliasing')}
         <div class="lvlhint">Anti-aliasing is fixed when the page loads &mdash; reload to apply.</div>
         <div class="sec">CROSSHAIR</div>

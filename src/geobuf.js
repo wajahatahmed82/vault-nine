@@ -11,8 +11,17 @@ import * as THREE from 'three';
 const lin = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 
 export class GeoBuf {
-  constructor() {
+  // opts.layer / opts.base / opts.win add the per-vertex attributes the town
+  // materials read: texture-array layer, wall-foot height for contact shadow,
+  // window id for the interior shader. Set this.L / this.B / this.W before
+  // emitting; this.su / this.sv scale UVs (metres -> texture repeats).
+  constructor(opts = {}) {
     this.p = []; this.n = []; this.u = []; this.c = [];
+    this.opts = opts;
+    this.l = opts.layer ? [] : null;
+    this.b = opts.base ? [] : null;
+    this.w = opts.win ? [] : null;
+    this.L = 0; this.B = -1000; this.W = 0; this.su = 1; this.sv = 1;
     this.tris = 0;
   }
 
@@ -20,7 +29,10 @@ export class GeoBuf {
   // linear, which is what three.js expects of vertex colours. Without the
   // conversion every surface renders washed out.
   _v(x, y, z, nx, ny, nz, u, v, col) {
-    this.p.push(x, y, z); this.n.push(nx, ny, nz); this.u.push(u, v);
+    this.p.push(x, y, z); this.n.push(nx, ny, nz); this.u.push(u * this.su, v * this.sv);
+    if (this.l) this.l.push(this.L);
+    if (this.b) this.b.push(this.B);
+    if (this.w) this.w.push(this.W);
     if (col !== this._lc) { this._lc = col; this._ll = [lin(col[0]), lin(col[1]), lin(col[2])]; }
     this.c.push(this._ll[0], this._ll[1], this._ll[2]);
   }
@@ -103,6 +115,9 @@ export class GeoBuf {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.u, 2));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
+    if (this.l) g.setAttribute('layer', new THREE.Float32BufferAttribute(this.l, 1));
+    if (this.b) g.setAttribute('aobase', new THREE.Float32BufferAttribute(this.b, 1));
+    if (this.w) g.setAttribute('win', new THREE.Float32BufferAttribute(this.w, 1));
     g.computeBoundingSphere();
     g.computeBoundingBox();
     return g;

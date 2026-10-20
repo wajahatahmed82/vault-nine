@@ -8,6 +8,7 @@ import { Player } from './player.js';
 import { Robot, pickType, STATE as AI } from './enemies.js';
 import { FX } from './fx.js';
 import { rayBox } from './collide.js';
+import { buildNav } from './nav.js';
 import * as audio from './audio.js';
 import * as settings from './settings.js';
 
@@ -152,6 +153,7 @@ export class Game {
 
   start(mode) {
     this.mode = mode || MODE.SURVIVAL;
+    this.townPower = true;
     this.reset();
     this.state = STATE.PLAY;
     this.input.reset();
@@ -167,7 +169,7 @@ export class Game {
       // the level starts empty.
       this.waveActive = false; this.queued = 0; this.breakT = 1e9;
       this.setPowered(false);
-      this.campaign.start(this.difficulty || 'normal');
+      this.campaign.start(this.difficulty || 'normal', this.campaignFrom || 'town');
     }
     this.onStateChange(this.state);
   }
@@ -245,6 +247,41 @@ export class Game {
     return this.player.inVoid(x, z) ? 0 : this.surfaceH(x, z);
   }
 
+  // Next waypoint for a soldier heading to (gx, gz) in town, or null to walk
+  // straight. Paths are re-planned at most every ~0.5 s per soldier.
+  navSteer(e, gx, gz, dt) {
+    const pos = e.root.position;
+    if (!this.town) return null;
+    if (!(pos.z > 47 || Math.abs(pos.x) > 46) || !(gz > 47 || Math.abs(gx) > 46)) return null;
+    if (!this.nav) this.nav = buildNav(this);
+    const N = this.nav;
+    const st = e.navState || (e.navState = { t: 0, path: null, idx: 0, gx: 0, gz: 0, direct: true, best: Infinity, stuck: 0, noPull: 0 });
+    st.t -= dt;
+    st.noPull -= dt;
+    // no progress toward the current waypoint for a second: plan again from here
+    if (st.path) {
+      const w = st.path[st.idx], d = Math.hypot(w.x - pos.x, w.z - pos.z);
+      if (d < st.best - 0.25) { st.best = d; st.stuck = 0; } else st.stuck += dt;
+      if (st.stuck > 1.0) { st.path = null; st.t = 0; st.stuck = 0; st.best = Infinity; st.noPull = 2; st.direct = false; st.gx = 1e9; }
+    }
+    if (st.t <= 0) {
+      st.t = 0.4 + Math.random() * 0.25;
+      st.direct = Math.hypot(gx - pos.x, gz - pos.z) < 2.5 || N.clear(pos.x, pos.z, gx, gz);
+      if (st.direct) st.path = null;
+      else if (!st.path || Math.hypot(gx - st.gx, gz - st.gz) > 3) {
+        st.path = N.path(pos.x, pos.z, gx, gz); st.idx = 0; st.gx = gx; st.gz = gz; st.best = Infinity;
+      }
+      // string-pull: skip a waypoint whenever the one after it is in a straight line
+      if (st.path && st.idx < st.path.length - 1 && st.noPull <= 0) {
+        const n = st.path[st.idx + 1];
+        if (N.clear(pos.x, pos.z, n.x, n.z)) st.idx++;
+      }
+    }
+    if (st.direct || !st.path) return null;
+    while (st.idx < st.path.length - 1 && Math.hypot(st.path[st.idx].x - pos.x, st.path[st.idx].z - pos.z) < 1.2) { st.idx++; st.best = Infinity; }
+    return st.path[st.idx];
+  }
+
   addCollider(c) {
     this.colliders.push(c);
     this.grid.add(c);
@@ -270,7 +307,7 @@ export class Game {
     this.grid.segment(ox, oz, ox + dx * far, oz + dz * far, (c) => {
       if (!c.town) return false;
       const h = rayBox(ox, oy, oz, dx, dy, dz, bestT, c);
-      if (h && h.t < bestT) { bestT = h.t; best = { t: h.t, axis: h.axis, sign: h.sign, kind: c.surf }; }
+      if (h && h.t < bestT) { bestT = h.t; best = { t: h.t, axis: h.axis, sign: h.sign, kind: c.surf, col: c }; }
       return false;
     });
     // terrain: coarse march out to the nearest box hit, then bisect. Skipped
@@ -302,7 +339,8 @@ export class Game {
       normal.set(this.surfaceH(point.x - e, point.z) - this.surfaceH(point.x + e, point.z), 2 * e,
         this.surfaceH(point.x, point.z - e) - this.surfaceH(point.x, point.z + e)).normalize();
     } else normal.setComponent(best.axis, best.sign);
-    return { distance: best.t, point, normal, kind: best.kind };
+    const kind = best.kind === 'car' || best.kind === 'fuelcar' ? 'metal' : best.kind;
+    return { distance: best.t, point, normal, kind, col: best.col };
   }
 
   // Line of sight against the collider boxes rather than the render meshes.
@@ -357,6 +395,7 @@ export class Game {
     const muzzle = new THREE.Vector3();
     this.weapons.model.muzzle.getWorldPosition(muzzle);
 
+    if (this.life) this.life.onShot(origin);
     const targets = this.blockers.slice();
     for (const r of this.robots) if (!r.dead) targets.push(...r.hitboxes);
 
@@ -411,6 +450,8 @@ export class Game {
         }
       } else {
         let n, kind;
+        // windows shatter, cars alarm, the fuel car counts its hits
+        if (hit.townHit && this.life && this.life.onBulletHit({ col: hit.townHit.col, point: hit.point })) continue;
         if (hit.townHit) {
           n = hit.townHit.normal;
           kind = hit.townHit.kind;
@@ -638,8 +679,14 @@ export class Game {
 
     // keep the shadow frustum on the player
     const p = this.player.state;
-    this.sun.position.set(p.x - 34, 30, p.z + 18);
-    this.sun.target.position.set(p.x, 0, p.z);
+    const so = this.sunOffset;
+    const gy = p.y;
+    if (so) this.sun.position.set(p.x + so.x, gy + so.y, p.z + so.z);
+    else this.sun.position.set(p.x - 34, 30, p.z + 18);
+    this.sun.target.position.set(p.x, gy, p.z);
+    if (this.scene.fog && this.baseFog) this.scene.fog.density = this.baseFog * (this.fogMul || 1);
+    if (this.atmos) this.atmos.update(dt, this.camera.position);
+    if (this.life) this.life.update(dt);
 
     // ---- combo decay ----
     if (this.comboT > 0) {
@@ -725,6 +772,7 @@ export class Game {
         frame: 0,
         canSee: (from, ps) => this.canSee(from, ps),
         blocked: (x, z) => this.blockedAt(x, z),
+        navSteer: (e, gx, gz, dt) => this.navSteer(e, gx, gz, dt),
         onAttack: (dmg, origin, dir, robot) => this.robotAttack(dmg, origin, dir, robot),
         onSpotted: (robot) => this.alertNear(robot.root.position, 16, true),
       };
@@ -797,8 +845,16 @@ export class Game {
   // buffer, so the weapon's lights cost nothing on world pixels and the barrel
   // can never clip through a wall.
   render() {
+    if (this.town) this.town.update(this.camera.position);
+    if (this.post && this.post.mode !== 'off') this.post.render(1 / 60);
+    else this.renderScene(null);
+  }
+
+  // World, then the weapon over a cleared depth buffer, into `target` (null =
+  // the screen). The post-processing composer calls this with its own target.
+  renderScene(target) {
     const cam = this.camera, r = this.renderer;
-    if (this.town) this.town.update(cam.position);
+    r.setRenderTarget(target);
     const bg = this.scene.background;
 
     // The world pass uses a 20 cm near plane (nothing in the world comes closer

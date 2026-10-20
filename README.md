@@ -10,7 +10,9 @@ Everything is generated in code with Three.js: geometry, textures, characters an
 
 ## The game
 
-- **Campaign, "The Signal":** eight objectives through a two-floor research station, with keycards, locked doors, checkpoints and a story told through logs, recordings and terminals.
+- **Meridian Ridge:** a walkable mountain town of about 150 buildings below the station. It has a Main Street of shops with signs and awnings, a square with a town hall and clock tower, houses and terraces, an industrial edge with a rail siding and water tower, and ten buildings you can walk into.
+- **Campaign, "The Signal":** starts at a police roadblock on the edge of town, works through the police station, the substation and the town hall, then climbs to a two-floor research station with keycards, locked doors, checkpoints and a story told through logs, recordings and terminals.
+- **Living world:** day, dusk or night with working street lights. Rain with splashes and wet roads, steam from drains, a burning car, birds that scatter at gunfire, swinging signs, a flag, a sparking power line, windows that shatter, car alarms, and a car you can blow up.
 - **Human enemies** on a 19-bone skinned rig. They patrol, guard, notice you through a vision cone, take cover, flank and react to casualties. Stealth works; crouching halves how fast you're spotted.
 - **Gunplay** with per-weapon learnable recoil patterns, surface-matched bullet impacts, scope sway with breath-holding, tactical and empty reloads.
 - **Survival and Time Attack** arcade modes.
@@ -59,13 +61,16 @@ Run in the browser console on the dev server (or the built `docs/index.html`):
 (await import('/tools/gunfeeltest.js')).run(__rs)    // recoil, spread, scope, impacts, 12 checks
 (await import('/tools/mobiletest.js')).run(__rs)     // phone controls, 11 checks
 (await import('/tools/inputstress.js')).run(__rs)    // simultaneous input, 15 checks
-(await import('/tools/walktest.js')).run(__rs)       // level route walkability
+(await import('/tools/walktest.js')).run(__rs)       // level route walkability ({ route: 'town' } for the town)
+(await import('/tools/towntest.js')).run(__rs)       // town prologue, 11 checks
+(await import('/tools/holescan.js')).run(__rs, { town: true })   // reachable spots with no floor
+(await import('/tools/perftest.js')).run(__rs, { preset: 'high' })   // worst-view search and timings
 ```
 
 ## Layout
 
 ```
-src/            game source (facility, campaign, soldiers, weapons, recoil, input, HUD)
+src/            game source (town, terrain, sky, facility, campaign, soldiers, weapons, input, HUD)
 tools/          build, dev server, test suites
 docs/           built single-file game and privacy policy, served by GitHub Pages
 android/        Capacitor Android project

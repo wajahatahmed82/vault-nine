@@ -14,12 +14,15 @@ A story-driven tactical shooter. Find out what happened at Meridian Ridge.
 
 Contact with Meridian Ridge Research Station stopped fourteen hours ago. The department is calling it a communications failure. You are here to confirm that. Nothing else.
 
-The station is empty when you arrive. The gate is open. The visitor log ends four days ago, and below the last entry someone has written a warning in different handwriting. The deeper you go, the less the official story holds together.
+The town below the station went quiet at the same time. Its own police have blocked the road in, and nobody is manning the roadblock. The deeper you go, the less the official story holds together.
 
 VAULT NINE is a single-player first-person shooter built around a story, not a scoreboard.
 
 EXPLORE A REAL PLACE
-Walk from the car park through reception, the security office, the admin floor, the generator room and down into the basement laboratory. Find keycards, restore power, read what the staff left behind, and piece together what was being built in Vault Nine.
+Start at the roadblock at the edge of Meridian Ridge, a mountain town of shops, houses, a square with a clock tower and an industrial yard by the railway. Search the police station, restore the town's power at the substation, and find a way through the station gate. Then work through reception, the security office and the generator room, and down into the basement laboratory. Read what people left behind, and piece together what was being built in Vault Nine.
+
+A TOWN THAT FEELS LIVED IN
+Dusk, day or night with working street lights. Rain that soaks the roads, steam from the drains, a car still burning on Main Street, birds that scatter at the first shot, windows that shatter, and car alarms that bring soldiers running.
 
 STEALTH OR STRAIGHT IN
 Soldiers patrol, stand guard and investigate noises. Stay out of their line of sight and crouch to stay unseen, take them down one at a time, or open fire and deal with what comes. They take cover, flank, react when a teammate goes down, and search for you when they lose contact.

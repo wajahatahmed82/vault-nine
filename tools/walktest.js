@@ -67,6 +67,7 @@ const TOWN_ROUTE = [
   ['town hall street', 50, 192, null],
   ['main south',        0, 230, null],
   ['main end',          0, 300, null],
+  ['main at 275',       0, 275, null],
   ['street 275 west', -50, 275, null],
   ['terrace street', -100, 275, null],
   ['west 3 street',  -150, 220, null],

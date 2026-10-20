@@ -70,6 +70,10 @@ Live: https://wajahatahmed82.github.io/vault-nine/  (repo `wajahatahmed82/vault-
 - **The valley floor is legitimately down to about y=-10.** Hole and fall checks use -50 / -30, not -10.
 - **Town frame cost is CPU, not GPU.** Same time at 320x180 as at 1080p; budget draw calls and objects, not pixels. Benchmark with paired runs (town on/off interleaved) — a 3-minute sweep throttled the laptop 10x.
 - **A late `pointerlockchange` swallows the next mouse move** (correct in play). Tests that calibrate with one synthetic move must clear `input.swallowMove` first.
+- **A car parked in a garden-boundary gap seals the garden.** Driveways sit beside the house and cars park 3.7 m inside the gap (`dressHouse`). A soldier trapped behind one is how this was found.
+- **Local fan-out steering fights planned paths.** Soldiers following a nav path skip the 0.9 m fan-out probe (`onPath` in enemies.js); with it they were pushed out of every narrow gap.
+- **Indoor AI timings are too short for streets.** SEARCH gave up after 9 s; town soldiers (`townSearch`) keep looking for 20 s.
+- **Shell scripts with apostrophes break the Bash tool's heredoc.** Write patch scripts to a file first (story text has apostrophes).
 
 ## Verifying changes
 
@@ -95,7 +99,15 @@ Measure render cost with `gl.finish()`, else timing CPU submit only.
     const w = await import('/tools/walktest.js'); w.run(__rs, { route: 'town' })
     const ph = await import('/tools/photo.js'); ph.on(__rs); ph.eye(__rs, x, z, yaw, pitch)
 
-Phase 1 numbers (grey-box, 150 buildings, 720 colliders): worst view 134 draw calls / 230k tris at HIGH, 80 / 137k at LOW.
+Kit and dressing: `src/townkit.js` (building parts, enterable interiors with real openings), `src/props.js` (street furniture, cars, trees, merged into chunk buffers -- no draw calls), `src/texgen.js` (texture arrays drawn with canvas 2D, sign atlas with invented names), `src/townmat.js` (array material with baked wall-foot shadow, interior-mapped window glass, shared time-of-day uniforms).
+
+Atmosphere: `src/sky.js` paints the equirect sky per time of day (gradient, sun, clouds, stars, two ridgeline layers) and feeds PMREM; patches the fog chunks for height fog; lamp heads + light pools are instanced; up to 4 real point lights follow the nearest lamps (0 on touch devices). `src/post.js`: HDR composer, bloom (threshold 1.05 so only emissives bloom), OutputPass, grade + vignette, FXAA; `postFx` off/light/full per preset. Settings `timeOfDay` (day/dusk/night) and `weather` (clear/rain).
+
+Life: `src/townlife.js` -- rain (vertex-shader line set), splash rings, litter, indoor dust, drain steam, burning car, birds that scatter at gunfire, swinging hanging signs (vertex shader), flag, sparking downed line, window shatter (`b.windows` rects per face), car alarms, the fuel-leak car (7 hits, blast radius 7 m). All pooled; scratch objects reused.
+
+Gameplay: `src/nav.js` waypoint graph (streets, lots, doorways) built lazily on the first town path request (~100 ms); `Game.navSteer` re-plans when stuck. Campaign prologue in `campaign.js` (`prologue` stages before the station ones); `game.campaignFrom = 'station'` starts the old mission (campaigntest/mobiletest set it). `game.townPower` gates the town lamps.
+
+    const t = await import('/tools/towntest.js'); t.run(__rs)    // town prologue, 11 checks
 
 ## Characters
 

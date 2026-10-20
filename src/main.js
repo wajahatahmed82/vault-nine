@@ -5,6 +5,9 @@ import { HUD } from './hud.js';
 import { Progression } from './progression.js';
 import * as audio from './audio.js';
 import * as settings from './settings.js';
+import { createAtmosphere } from './sky.js';
+import { createPost } from './post.js';
+import { createLife } from './townlife.js';
 
 const canvas = document.getElementById('view');
 
@@ -32,6 +35,16 @@ const prog = new Progression();
 const input = new Input(canvas);
 const game = new Game(renderer, input, prog);
 const hud = new HUD(game, input, prog);
+
+// Atmosphere before the shader warm-up below, so its lights are part of every
+// compiled program. Phones get no real point lights: the per-pixel light loop
+// is the most expensive thing a mobile GPU could be asked to do here.
+game.atmos = createAtmosphere(game, renderer, { pointLights: TOUCH_ONLY ? 0 : 4, time: settings.get('timeOfDay') });
+game.atmos.setWeather(settings.get('weather'));
+game.life = createLife(game, { lowEffects: TOUCH_ONLY, fireLight: !TOUCH_ONLY });
+game.life.setRain(settings.get('weather') === 'rain');
+game.post = createPost(renderer, game);
+game.post.setGrade(settings.get('timeOfDay'));
 
 // ---------------------------------------------------------------- quality ----
 // Presets write individual knobs; the knobs are what actually drive the
@@ -76,6 +89,7 @@ function applySize() {
   const h = window.innerHeight || 600;
   renderer.setPixelRatio(Math.min(renderScale, DPR_CAP * 1.5));
   renderer.setSize(w, h, false);
+  if (game.post) game.post.setSize(w, h, renderer.getPixelRatio());
   game.camera.aspect = w / h;
   game.camera.updateProjectionMatrix();
 }
@@ -102,18 +116,27 @@ function applyQuality() {
   // Phones on auto keep the near view distance: town detail stops at 90 m,
   // which takes the worst view in town from ~134 draw calls to ~80.
   const vd = q === 'auto' && TOUCH_ONLY ? 'near' : settings.get('viewDistance');
-  if (game.scene.fog) game.scene.fog.density = VIEW_FOG[vd] ?? VIEW_FOG.medium;
+  game.baseFog = VIEW_FOG[vd] ?? VIEW_FOG.medium;
+  if (game.scene.fog) game.scene.fog.density = game.baseFog * (game.fogMul || 1);
   game.camera.far = VIEW_FAR[vd] ?? VIEW_FAR.medium;
   if (game.town) game.town.detailDist = VIEW_DETAIL[vd] ?? VIEW_DETAIL.medium;
   game.camera.updateProjectionMatrix();
 
   game.fx.setBudget(settings.get('effects'));
+  // post effects: phones on auto skip them entirely
+  const pf = q === 'auto' ? (TOUCH_ONLY ? 'off' : 'full') : settings.get('postFx');
+  if (game.post) game.post.setMode(pf);
   applySize();
 }
 applyQuality();
 settings.onChange((k) => {
-  if (k === null || ['quality', 'shadowQuality', 'renderScale', 'effects', 'viewDistance'].includes(k)) {
+  if (k === null || ['quality', 'shadowQuality', 'renderScale', 'effects', 'viewDistance', 'postFx'].includes(k)) {
     applyQuality();
+  }
+  if (k === null || k === 'timeOfDay') { game.atmos.setTime(settings.get('timeOfDay')); game.post.setGrade(settings.get('timeOfDay')); }
+  if (k === null || k === 'weather') {
+    game.atmos.setWeather(settings.get('weather'));
+    game.life.setRain(settings.get('weather') === 'rain');
   }
 });
 

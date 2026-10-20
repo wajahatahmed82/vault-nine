@@ -26,6 +26,7 @@ export function run(rs) {
 
   prog.data.level = 6;
   game.difficulty = 'normal';
+  game.campaignFrom = 'station';
   game.start(MODE.CAMPAIGN);
   game.player.state.health = 1e9;
   input.releaseAll();
