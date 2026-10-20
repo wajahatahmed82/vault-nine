@@ -1,6 +1,6 @@
 # VAULT NINE — working notes
 
-Story-driven FPS, browser + Android. Three.js, all procedural (geometry, textures, audio) — no asset files, nothing licensed. Formerly ROBOT STRIKE; local folder and localStorage keys (`robotstrike.*`) keep the old name on purpose — renaming the keys would wipe every player's saves.
+Story-driven FPS, browser + Android. Three.js, procedural geometry, audio and most textures. The only third-party content is nine CC0 photo textures (ambientCG), listed in ASSETS.md and embedded by `tools/cc0pack.js` into `src/cc0data.js`; any new asset must be listed to the user before download and logged there. Formerly ROBOT STRIKE; local folder and localStorage keys (`robotstrike.*`) keep the old name on purpose — renaming the keys would wipe every player's saves.
 
 Live: https://wajahatahmed82.github.io/vault-nine/  (repo `wajahatahmed82/vault-nine`; old `robot-strike` Pages URL redirects)
 
@@ -74,6 +74,8 @@ Live: https://wajahatahmed82.github.io/vault-nine/  (repo `wajahatahmed82/vault-
 - **Local fan-out steering fights planned paths.** Soldiers following a nav path skip the 0.9 m fan-out probe (`onPath` in enemies.js); with it they were pushed out of every narrow gap.
 - **Indoor AI timings are too short for streets.** SEARCH gave up after 9 s; town soldiers (`townSearch`) keep looking for 20 s.
 - **Shell scripts with apostrophes break the Bash tool's heredoc.** Write patch scripts to a file first (story text has apostrophes).
+- **CC0 photo textures arrive after the town is built.** `applyCC0` (texgen.js) decodes them async and writes into the existing DataArrayTextures; tile sizes in `FACADE_TILE`/`ROOF_TILE`/`GROUND_TILE` are already set for the photos (`[u, v]` where the source is not square). Arrays are 512 px on desktop, 256 on phones (`OUT`).
+- **Bloom threshold must follow time of day.** At 1.05 sunlit pale paving glowed by day; `GRADES[...].bloom` is 1.9 day, 1.2 dusk, 1.0 night.
 
 ## Verifying changes
 

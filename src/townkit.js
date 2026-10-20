@@ -1,4 +1,4 @@
-import { FACADE, FACADE_TILE, ROOF_TILE, SIGN_COLS, SIGN_ROWS } from './texgen.js';
+import { FACADE, FACADE_TILE, ROOF_TILE, SIGN_COLS, SIGN_ROWS, tile } from './texgen.js';
 
 // The modular building kit.
 //
@@ -50,7 +50,7 @@ function frame(b) {
   return { W, box, faces, fpos, fbox, fquad, outward, cs, sn };
 }
 
-const setTile = (buf, layer, tiles) => { buf.L = layer; buf.su = buf.sv = 1 / tiles[layer]; };
+const setTile = (buf, layer, tiles) => { buf.L = layer; tile(buf, tiles, layer); };
 
 // One window bay: wall-coloured reveal standing proud so the glass reads as
 // set back, the glass with its room, a painted frame, a sash rail, a stone
@@ -276,7 +276,7 @@ function clockFaces(K, N, b) {
 export function emitRoof(b, walls, roof, K, i, isFar, trim) {
   const { W, box } = K;
   const top = b.base + b.H;
-  roof.L = b.roofMat; roof.su = roof.sv = 1 / ROOF_TILE[b.roofMat]; roof.B = -1000;
+  roof.L = b.roofMat; tile(roof, ROOF_TILE, b.roofMat); roof.B = -1000;
   walls.B = -1000;
   if (b.roof === 'flat') {
     if (isFar) { box(walls, 0, top + 0.35, 0, b.w - 2 * i, 0.7, b.d - 2 * i, b.wallC); return; }

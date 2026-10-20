@@ -49,7 +49,7 @@ export const TIMES = {
     sunEl: 52, sunAz: -128, sunCol: [1.0, 0.96, 0.88], sunI: 3.3,
     zenith: [0.30, 0.50, 0.78], horizon: [0.74, 0.80, 0.86], sunGlow: [1.0, 0.95, 0.85], glowAmt: 0.25,
     hemiSky: [0.78, 0.84, 0.92], hemiGround: [0.46, 0.43, 0.38], hemiI: 2.3,
-    fog: [0.60, 0.66, 0.73], fogMul: 0.85, exposure: 1.0, env: 1.1, day: 1, night: 0, clouds: 0.45,
+    fog: [0.60, 0.66, 0.73], fogMul: 0.6, exposure: 1.0, env: 1.1, day: 1, night: 0, clouds: 0.45,
     ridgeFar: [0.62, 0.68, 0.76], ridgeNear: [0.48, 0.54, 0.6],
   },
   dusk: {

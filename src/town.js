@@ -3,8 +3,9 @@ import { GeoBuf } from './geobuf.js';
 import { terrainH, PLAY, SHELF } from './terrain.js';
 import {
   buildFacadeArray, buildRoofArray, buildGroundArray, buildSignAtlas,
-  FACADE, ROOF, GROUND, GROUND_TILE, FACADE_TILE, signIndex,
+  FACADE, ROOF, GROUND, GROUND_TILE, FACADE_TILE, signIndex, tile, applyCC0,
 } from './texgen.js';
+import { CC0 } from './cc0data.js';
 import { arrayMaterial, interiorGlass, clearGlass, signMaterial, SHARED } from './townmat.js';
 import { emitBuilding, KIT } from './townkit.js';
 import * as PR from './props.js';
@@ -157,7 +158,7 @@ function building(o, r) {
   }
   if (b.roofMat === undefined) {
     b.roofMat = b.roof === 'flat' ? ROOF.felt
-      : b.kind === 'warehouse' ? ROOF.corrugated : pick(r, [ROOF.tiles, ROOF.slate, ROOF.slate]);
+      : b.kind === 'warehouse' ? ROOF.corrugated : pick(r, b.kind === 'house' ? [ROOF.tiles, ROOF.slate, ROOF.shingles, ROOF.shingles] : [ROOF.tiles, ROOF.slate, ROOF.slate]);
   }
   if (!b.wallC) {
     b.wallC = b.mat === FACADE.render ? pick(r, RENDER_TINTS)
@@ -725,6 +726,10 @@ export function buildTown(scene, mats) {
     },
   };
   town.buildMs = Math.round(performance.now() - t0);
+  // CC0 photo textures replace their procedural layers once decoded (a few
+  // hundred ms, during the menu). If decoding fails the procedural ones stay.
+  town.cc0Ready = applyCC0(arr, CC0).then((n) => { town.cc0Applied = n; return n; })
+    .catch((e) => { console.warn('CC0 textures not applied', e); town.cc0Applied = 0; return 0; });
   return town;
 }
 
@@ -826,7 +831,7 @@ function emitProp(p, P, solid, H, ctx, r) {
       const cols = [[0.55, 0.22, 0.16], [0.18, 0.32, 0.48], [0.26, 0.40, 0.28], [0.62, 0.50, 0.22]];
       for (let s = 0; s < p.stack; s++) {
         const col = cols[Math.floor(Math.abs(p.x * 7 + p.z * 3 + s * 5)) % cols.length];
-        N.walls.L = FACADE.corrugated; N.walls.su = N.walls.sv = 1 / FACADE_TILE[FACADE.corrugated]; N.walls.B = -1000;
+        N.walls.L = FACADE.corrugated; tile(N.walls, FACADE_TILE, FACADE.corrugated); N.walls.B = -1000;
         N.walls.box(p.x, y + 1.3 + s * 2.6, p.z, 6.0, 2.6, 2.45, 0, 1, col);
       }
       solid(p.x - 1.25, p.z - 3, p.x + 1.25, p.z + 3, y - 0.5, y + 2.6 * p.stack, 'metal');
@@ -864,7 +869,7 @@ function emitProp(p, P, solid, H, ctx, r) {
     case 'rail': {
       for (let z = p.z0; z < p.z1; z += 6) {
         const C = P(p.x, z + 3);
-        C.ground.L = GROUND.gravel; C.ground.su = C.ground.sv = 1 / GROUND_TILE[GROUND.gravel]; C.ground.B = -1000;
+        C.ground.L = GROUND.gravel; tile(C.ground, GROUND_TILE, GROUND.gravel); C.ground.B = -1000;
         const y0 = H(p.x, z), y1 = H(p.x, z + 6);
         C.ground.quad([p.x - 2, y0 + 0.04, z], [p.x + 2, y0 + 0.04, z], [p.x + 2, y1 + 0.04, z + 6], [p.x - 2, y1 + 0.04, z + 6], [0, 1, 0], [0.8, 0.78, 0.74],
           [p.x - 2, z, p.x + 2, z, p.x + 2, z + 6, p.x - 2, z + 6]);
@@ -891,7 +896,7 @@ function emitProp(p, P, solid, H, ctx, r) {
           const seg = len / n;
           const N = at(mx, mz);
           if (p.type === 'wall') {
-            N.walls.L = FACADE.concrete; N.walls.su = N.walls.sv = 1 / FACADE_TILE[FACADE.concrete]; N.walls.B = y;
+            N.walls.L = FACADE.concrete; tile(N.walls, FACADE_TILE, FACADE.concrete); N.walls.B = y;
             N.walls.box(mx, y + h / 2 - 0.2, mz, horiz ? seg : 0.25, h + 0.4, horiz ? 0.25 : seg, 1, 0, [0.9, 0.88, 0.84]);
           } else {
             N.trim.box(x0, y + h / 2, z0, 0.1, h, 0.1, 1, 0, [0.4, 0.42, 0.44]);
@@ -940,7 +945,7 @@ function dressHouse(b, P, solid, H, r) {
   // gravel driveway, maybe a car on it
   const [d0x, d0z] = lineAt(drive, 0), [d1x, d1z] = lineAt(drive, L.setback + b.d * 0.6);
   const G = N.ground;
-  G.L = GROUND.gravel; G.su = G.sv = 1 / GROUND_TILE[GROUND.gravel]; G.B = -1000;
+  G.L = GROUND.gravel; tile(G, GROUND_TILE, GROUND.gravel); G.B = -1000;
   const w2 = 1.4;
   const dq = along
     ? [[d0x - w2, d0z], [d0x + w2, d0z], [d1x + w2, d1z], [d1x - w2, d1z]]
@@ -1125,9 +1130,9 @@ function emitGround(blk, buf, forecourt) {
                      (pave.n && cz < z1 + pave.n) || (pave.s && cz > z2 - pave.s);
       const inFore = forecourt && cx > forecourt.x1 && cx < forecourt.x2 && cz > forecourt.z1 && cz < forecourt.z2;
       const layer = inPave ? GROUND.slabs : inFore ? GROUND.concrete : lot;
-      buf.L = layer; buf.su = buf.sv = 1 / GROUND_TILE[layer];
+      buf.L = layer; tile(buf, GROUND_TILE, layer);
       buf.quad([ax, H(ax, az), az], [bx, H(bx, az), az], [bx, H(bx, bz), bz], [ax, H(ax, bz), bz],
-        [0, 1, 0], [1, 1, 1], [ax, az, bx, az, bx, bz, ax, bz]);
+        [0, 1, 0], GROUND_TINT[layer] || WHITE, [ax, az, bx, az, bx, bz, ax, bz]);
     }
   }
   const edge = (ax, az, bx, bz, out) => {
@@ -1146,6 +1151,11 @@ function emitGround(blk, buf, forecourt) {
   if (pave.e) edge(x2, z1, x2, z2, [1, 0, 0]);
 }
 
+// The CC0 lawn is a saturated photo green and the pale procedural slabs went
+// glare-white in full sun; both are toned down here.
+const WHITE = [1, 1, 1];
+const GROUND_TINT = { [GROUND.grass]: [0.78, 0.8, 0.7], [GROUND.slabs]: [0.86, 0.86, 0.85] };
+
 function lines(a, b, pa, pb) {
   const out = [a];
   const ia = a + pa, ib = b - pb;
@@ -1163,7 +1173,7 @@ function emitRoad(s, a, b, buf) {
   const n = Math.max(1, Math.ceil((b - a) / 4));
   const col = [1, 1, 1];
   const P = (t, o) => (s.axis === 'z' ? [s.at + o, terrainH(s.at + o, t) + lift, t] : [t, terrainH(t, s.at + o) + lift, s.at + o]);
-  buf.L = GROUND.asphalt; buf.su = buf.sv = 1 / GROUND_TILE[GROUND.asphalt]; buf.B = -1000;
+  buf.L = GROUND.asphalt; tile(buf, GROUND_TILE, GROUND.asphalt); buf.B = -1000;
   for (let k = 0; k < n; k++) {
     const t0 = a + (b - a) * k / n, t1 = a + (b - a) * (k + 1) / n;
     buf.quad(P(t0, -hw), P(t0, hw), P(t1, hw), P(t1, -hw), [0, 1, 0], col,

@@ -1,4 +1,4 @@
-import { FACADE, FACADE_TILE } from './texgen.js';
+import { FACADE, FACADE_TILE, tile } from './texgen.js';
 
 // Street furniture, vehicles and vegetation.
 //
@@ -178,7 +178,7 @@ export function hedge(P, solid, x1, z1, x2, z2, y, h) {
 export function lowWall(P, solid, x1, z1, x2, z2, y, h) {
   const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
   const sx = Math.max(0.3, Math.abs(x2 - x1)), sz = Math.max(0.3, Math.abs(z2 - z1));
-  P.walls.L = FACADE.brickRed; P.walls.su = P.walls.sv = 1 / FACADE_TILE[FACADE.brickRed]; P.walls.B = y;
+  P.walls.L = FACADE.brickRed; tile(P.walls, FACADE_TILE, FACADE.brickRed); P.walls.B = y;
   P.walls.box(mx, y + h / 2, mz, sx, h, sz, 1, 0, [0.95, 0.93, 0.9]);
   P.trim.box(mx, y + h + 0.04, mz, sx + 0.06, 0.08, sz + 0.06, 1, 0, [0.7, 0.68, 0.64]);
   solid(mx - sx / 2, mz - sz / 2, mx + sx / 2, mz + sz / 2, y - 0.5, y + h + 0.08, 'masonry');
@@ -240,7 +240,7 @@ export function rail(P, solid, x, z0, z1, H) {
 }
 
 export function wagon(P, solid, x, y, z) {
-  P.walls.L = FACADE.corrugated; P.walls.su = P.walls.sv = 1 / FACADE_TILE[FACADE.corrugated]; P.walls.B = -1000;
+  P.walls.L = FACADE.corrugated; tile(P.walls, FACADE_TILE, FACADE.corrugated); P.walls.B = -1000;
   P.walls.box(x, y + 2.3, z, 2.9, 2.6, 13, 1, 0, [0.55, 0.3, 0.2]);
   P.trim.box(x, y + 0.75, z, 2.6, 0.3, 13.4, 1, 0, DARKMETAL);
   for (const dz of [-4.5, 4.5]) for (const dx of [-0.72, 0.72]) P.trim.box(x + dx, y + 0.5, z + dz, 0.2, 0.8, 0.8, 1, 0, [0.1, 0.1, 0.1]);
@@ -249,7 +249,7 @@ export function wagon(P, solid, x, y, z) {
 
 export function garage(P, solid, x, y, z, rot, wallC) {
   const cs = Math.cos(rot), sn = Math.sin(rot);
-  P.walls.L = FACADE.render; P.walls.su = P.walls.sv = 1 / FACADE_TILE[FACADE.render]; P.walls.B = y;
+  P.walls.L = FACADE.render; tile(P.walls, FACADE_TILE, FACADE.render); P.walls.B = y;
   P.walls.box(x, y + 1.3, z, 3.4, 2.6, 6, cs, sn, wallC);
   P.trim.box(x, y + 2.65, z, 3.6, 0.12, 6.2, cs, sn, [0.25, 0.25, 0.26]);
   rotBox(P.trim, x, y + 1.05, z, 2.6, 2.1, 0.04, rot, [0.7, 0.7, 0.68], 0, 3.0);

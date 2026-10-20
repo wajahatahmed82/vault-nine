@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { TOUCH_ONLY } from './input.js';
 
 // Texture arrays for the town.
 //
@@ -11,7 +12,10 @@ import * as THREE from 'three';
 // Drawn with canvas 2D (bricks, boards, slabs as shapes) plus a shared noise
 // tile, then normals derived from a height canvas. No image files.
 
+// Procedural layers are drawn at 256 px. The arrays themselves are 512 px on
+// desktop so the CC0 photo textures keep their detail, 256 on phones.
 export const TEX = 256;
+export const OUT = TOUCH_ONLY ? 256 : 512;
 
 function noiseTile(size) {
   const d = new Float32Array(size * size);
@@ -85,8 +89,33 @@ function bake(layers) {
       }
     }
   });
+  const up = (src) => {
+    if (OUT === S) return src;
+    // bilinear upsample, layer by layer, in plain JS (canvas would premultiply
+    // the roughness stored in alpha and corrupt the normals)
+    const O = OUT, dst = new Uint8Array(O * O * 4 * n);
+    for (let l = 0; l < n; l++) {
+      const sb = l * S * S * 4, db = l * O * O * 4;
+      for (let y = 0; y < O; y++) {
+        const fy = (y + 0.5) * S / O - 0.5, y0 = Math.floor(fy), ty = fy - y0;
+        const ya = ((y0 % S) + S) % S, yb = (ya + 1) % S;
+        for (let x = 0; x < O; x++) {
+          const fx = (x + 0.5) * S / O - 0.5, x0 = Math.floor(fx), tx = fx - x0;
+          const xa = ((x0 % S) + S) % S, xb = (xa + 1) % S;
+          const o = db + (y * O + x) * 4;
+          for (let c = 0; c < 4; c++) {
+            const a = src[sb + (ya * S + xa) * 4 + c], b = src[sb + (ya * S + xb) * 4 + c];
+            const cc = src[sb + (yb * S + xa) * 4 + c], d = src[sb + (yb * S + xb) * 4 + c];
+            dst[o + c] = (a + (b - a) * tx) * (1 - ty) + (cc + (d - cc) * tx) * ty;
+          }
+        }
+      }
+    }
+    return dst;
+  };
   const mk = (data, srgb) => {
-    const t = new THREE.DataArrayTexture(data, S, S, n);
+    data = up(data);
+    const t = new THREE.DataArrayTexture(data, OUT, OUT, n);
     t.format = THREE.RGBAFormat;
     t.type = THREE.UnsignedByteType;
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -147,11 +176,19 @@ function blotches(cx, r, n, col, alpha, size) {
 
 // Facade layers. Metres per texture repeat in FACADE_TILE (same order).
 export const FACADE = { brickRed: 0, brickBuff: 1, render: 2, cladding: 3, stone: 4, corrugated: 5, concrete: 6, farWindows: 7 };
-export const FACADE_TILE = [1.8, 1.8, 3.0, 2.4, 2.4, 1.2, 3.0, 1.0];
-export const ROOF = { tiles: 0, slate: 1, corrugated: 2, felt: 3 };
-export const ROOF_TILE = [1.2, 1.2, 1.2, 3.0];
+// Metres per texture repeat, [u, v] where the source image is not square.
+// Layers backed by CC0 photo textures (see CC0_LAYERS) are sized to them.
+export const FACADE_TILE = [[1.5, 0.75], 1.8, 2.2, 3.0, 2.4, 1.2, [3.0, 1.5], 1.0];
+export const ROOF = { tiles: 0, slate: 1, corrugated: 2, felt: 3, shingles: 4 };
+export const ROOF_TILE = [1.2, 2.0, 1.2, 3.0, 3.0];
 export const GROUND = { slabs: 0, grass: 1, concrete: 2, setts: 3, paint: 4, gravel: 5, asphalt: 6 };
-export const GROUND_TILE = [2.4, 3.0, 4.0, 1.6, 1.0, 3.0, 5.0];
+export const GROUND_TILE = [2.4, 2.5, [4.0, 2.0], [1.6, 3.2], 1.0, 3.0, 3.0];
+
+// Set a buffer's UV scale for a layer from one of the tables above.
+export function tile(buf, table, layer) {
+  const t = table[layer];
+  if (Array.isArray(t)) { buf.su = 1 / t[0]; buf.sv = 1 / t[1]; } else { buf.su = buf.sv = 1 / t; }
+}
 
 export function buildFacadeArray() {
   return bake([
@@ -250,6 +287,9 @@ export function buildRoofArray() {
       blotches(cx, r, 10, '50,48,44', 0.25, 50);
       hx.fillStyle = grey(128); hx.fillRect(0, 0, TEX, TEX);
     } },
+    { rough: 0.9, nrm: 3, draw: (cx, hx, r) => {   // asphalt shingles (replaced by CC0)
+      courses(cx, hx, r, 21.3, 21.3, 2, (r) => { const v = r(); return [58 + v * 14, 58 + v * 14, 62 + v * 14]; }, rgb(36, 36, 40), { bond: 0.5 });
+    } },
   ]);
 }
 
@@ -343,3 +383,51 @@ export function buildSignAtlas() {
 }
 export const signIndex = (name) => Math.max(0, SIGNS.indexOf(name));
 export const GLOW_CELL = SIGNS.indexOf('');
+
+// ---------------------------------------------------------------- CC0 --
+
+// CC0 photo textures from ambientCG (see ASSETS.md), downscaled to 512 px and
+// embedded in cc0data.js. They replace the procedural layer of the same
+// name once decoded; until then (a moment at load) the procedural one shows.
+export const CC0_LAYERS = {
+  facade: { brickRed: 'Bricks104', render: 'Plaster001', cladding: 'WoodSiding008', concrete: 'Concrete034' },
+  roof: { slate: 'RoofingTiles003', shingles: 'RoofingTiles013A' },
+  ground: { grass: 'Grass005', concrete: 'Concrete034', setts: 'PavingStones138', asphalt: 'Asphalt033' },
+};
+
+async function decode(url) {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  return img;
+}
+
+export async function applyCC0(arrays, data) {
+  const c = document.createElement('canvas'); c.width = c.height = OUT;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  const read = (img) => { g.clearRect(0, 0, OUT, OUT); g.drawImage(img, 0, 0, OUT, OUT); return g.getImageData(0, 0, OUT, OUT).data; };
+  const index = { facade: FACADE, roof: ROOF, ground: GROUND };
+  let applied = 0;
+  for (const [kind, map] of Object.entries(CC0_LAYERS)) {
+    const arr = arrays[kind];
+    if (!arr) continue;
+    for (const [layerName, asset] of Object.entries(map)) {
+      const d = data[asset];
+      if (!d) continue;
+      const [col, nrm, rgh] = await Promise.all([decode(d.color), decode(d.normal), decode(d.rough)]);
+      const L = index[kind][layerName];
+      const base = L * OUT * OUT * 4;
+      const A = arr.albedo.image.data, NR = arr.normalRough.image.data;
+      const cp = read(col);
+      for (let i = 0; i < OUT * OUT * 4; i++) A[base + i] = cp[i];
+      const np = read(nrm);
+      for (let i = 0; i < OUT * OUT; i++) { NR[base + i * 4] = np[i * 4]; NR[base + i * 4 + 1] = np[i * 4 + 1]; NR[base + i * 4 + 2] = np[i * 4 + 2]; }
+      const rp = read(rgh);
+      for (let i = 0; i < OUT * OUT; i++) NR[base + i * 4 + 3] = rp[i * 4];
+      applied++;
+    }
+    arr.albedo.needsUpdate = true;
+    arr.normalRough.needsUpdate = true;
+  }
+  return applied;
+}

@@ -6,7 +6,7 @@ A story-driven tactical shooter for the browser and Android. Contact with Meridi
 - **Android test build:** [android-latest release](https://github.com/wajahatahmed82/vault-nine/releases/tag/android-latest)
 - **Privacy policy:** https://wajahatahmed82.github.io/vault-nine/privacy.html
 
-Everything is generated in code with Three.js: geometry, textures, characters and sound. There are no model, texture or audio files and nothing is licensed from anyone.
+Almost everything is generated in code with Three.js: geometry, characters, sound and most textures. The exceptions are nine CC0 (public domain) photo textures from ambientCG, listed in [ASSETS.md](ASSETS.md).
 
 ## The game
 

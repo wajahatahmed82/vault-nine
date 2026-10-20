@@ -38,10 +38,12 @@ const GradeShader = {
     }`,
 };
 
+// `bloom` is the threshold: by day sunlit pale paving goes past 1.0 and
+// would glow, so only lights (and the sun) are allowed over it.
 export const GRADES = {
-  day: { sat: 1.06, gain: [1.0, 1.0, 1.0], lift: [0.0, 0.0, 0.01], vig: 0.22 },
-  dusk: { sat: 1.1, gain: [1.05, 0.99, 0.93], lift: [0.02, 0.0, 0.02], vig: 0.3 },
-  night: { sat: 0.82, gain: [0.92, 0.98, 1.1], lift: [0.0, 0.01, 0.03], vig: 0.38 },
+  day: { sat: 1.06, gain: [1.0, 1.0, 1.0], lift: [0.0, 0.0, 0.01], vig: 0.22, bloom: 1.9 },
+  dusk: { sat: 1.1, gain: [1.05, 0.99, 0.93], lift: [0.02, 0.0, 0.02], vig: 0.3, bloom: 1.2 },
+  night: { sat: 0.82, gain: [0.92, 0.98, 1.1], lift: [0.0, 0.01, 0.03], vig: 0.38, bloom: 1.0 },
 };
 
 class GamePass extends Pass {
@@ -76,6 +78,7 @@ export function createPost(renderer, game) {
       grade.uniforms.uGain.value.set(...G.gain);
       grade.uniforms.uLift.value.set(...G.lift);
       grade.uniforms.uVig.value = G.vig;
+      bloom.threshold = G.bloom;
     },
     setSize(w, h, pr) {
       size.set(w, h);
