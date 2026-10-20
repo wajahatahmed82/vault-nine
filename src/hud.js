@@ -5,6 +5,7 @@ import { STATE, MODE } from './game.js';
 import { UPGRADES, MAX_RANK } from './progression.js';
 import * as audio from './audio.js';
 import * as settings from './settings.js';
+import { Minimap } from './minimap.js';
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.floor(n).toLocaleString();
@@ -76,7 +77,7 @@ export class HUD {
 
     game.onPrompt = (text, locked) => this.setPrompt(text, locked);
     game.onDown = () => this.banner('CHECKPOINT RELOADED');
-    game.campaign.onObjective = (stage, i, n) => this.setObjective(stage, i, n);
+    game.campaign.onObjective = (stage, i, n, first) => this.setObjective(stage, i, n, first);
     game.campaign.onLog = (entry) => this.showLog(entry);
     game.campaign.onCheckpoint = () => this.banner('CHECKPOINT');
     game.campaign.onComplete = () => this.banner('MISSION COMPLETE');
@@ -102,6 +103,10 @@ export class HUD {
     input.bindTap($('btn-nade'), () => { this.input.queue.frag++; });
     input.bindTap($('btn-bag'), () => { this.input.queue.inventory++; });
     game.gear.onToast = (msg) => this.toast(msg);
+    this.minimap = new Minimap(game, $('minimap'), $('compass'));
+    game.onCallout = (c) => this.comms(c);
+    game.campaign.onComplete = () => game.completeMission();
+    this._lastObjId = null;
     game.onInventory = () => { this.panel = 'inventory'; game.pause(); };
     // Tab or Esc closes the pack. Gameplay input is off while paused, so the
     // keys are caught here; resume() clears the Esc the input layer queued.
@@ -119,7 +124,8 @@ export class HUD {
     game.onHit = (part, pos, dmg) => this.hit(part, pos, dmg);
     game.onKill = (info) => this.kill(info);
     game.onWave = (n, x, cleared) => this.wave(n, x, cleared);
-    game.onDamaged = () => { this.vignetteT = 0.7; };
+    // the red hit edge is a screen effect now (screenfx.js), so it survives a hidden HUD
+    game.onDamaged = () => {};
     game.onCombo = (mult) => this.showCombo(mult);
     game.onLevelUp = (lvl) => this.levelUp(lvl);
     game.onStateChange = (s) => this.render(s);
@@ -179,7 +185,7 @@ export class HUD {
     row.className = 'feed-row';
     const mult = info.mult > 1 ? `<b class="mx">x${info.mult}</b>` : '';
     row.innerHTML = `<span class="fk">${info.headshot ? 'HEADSHOT' : 'KILL'}</span>
-      <span class="fn">${info.name}</span>${mult}`;
+      <span class="fn">${info.name}</span>${mult}${info.weapon ? `<span class="fw">${info.weapon} &middot; ${info.dist} m</span>` : ''}`;
     this.feed.appendChild(row);
     setTimeout(() => { row.classList.add('out'); }, 2600);
     setTimeout(() => row.remove(), 3100);
@@ -287,6 +293,8 @@ export class HUD {
       this.cross.style.setProperty('--gap', px.toFixed(1) + 'px');
       this.cross.style.opacity = (1 - w.ads * 0.95).toFixed(2);
       $('scope').classList.toggle('on', w.ads > 0.75 && w.scoped);
+      this.combat.classList.toggle('nohud', !settings.get('showHud'));
+      if (settings.get('showHud')) this.minimap.update(dt);
       this.gearHud(w, dt);
 
       const rl = $('reload-ring');
@@ -342,7 +350,7 @@ export class HUD {
   // Counts, zeroing, the item-in-hand bar and pickup toasts.
   gearHud(w, dt) {
     const C = this.game.gear.counts;
-    for (const k of ['plates', 'meds', 'frags', 'smokes']) {
+    for (const k of ['plates', 'meds', 'frags', 'smokes', 'flashes']) {
       const el = $('g-' + k);
       el.lastChild.textContent = C[k];
       el.classList.toggle('none', !C[k]);
@@ -403,8 +411,9 @@ export class HUD {
         <div class="h2">GEAR</div>
         ${item('Armour plate (B) &middot; +' + G.plateArmour + ' armour', C.plates, G.maxPlates, 'inv-plate')}
         ${item('Medkit (H) &middot; +' + G.medHeal + ' health', C.meds, G.maxMeds, 'inv-med')}
-        ${item('Frag grenade (G)', C.frags, G.maxFrags)}
-        ${item('Smoke grenade (T)', C.smokes, G.maxSmokes)}
+        ${item('Frag grenade (G)', C.frags, G.maxFrags, 'inv-frag')}
+        ${item('Smoke grenade (T)', C.smokes, G.maxSmokes, 'inv-smoke')}
+        ${item('Flashbang (V)', C.flashes || 0, G.maxFlashes, 'inv-flash')}
         <button class="btn primary" data-a="resume">Back (Tab)</button>
       </div>`);
   }
@@ -486,7 +495,7 @@ export class HUD {
         <div class="hint">
           <b>WASD</b> move &middot; <b>Shift</b> sprint (twice: dash) &middot; <b>Ctrl</b> crouch / slide &middot; <b>Z</b> prone &middot; <b>Space</b> jump / vault<br>
           <b>Q E</b> lean &middot; <b>F</b> use &middot; <b>Mouse</b> aim &middot; <b>RMB</b> sights &middot; <b>R</b> reload &middot; <b>1-5</b> weapons &middot; <b>Esc</b> pause<br>
-          <b>G</b> frag &middot; <b>T</b> smoke &middot; <b>B</b> armour plate &middot; <b>H</b> medkit &middot; <b>Tab</b> pack &middot; <b>[ ]</b> sniper zero<br>
+          <b>G</b> frag &middot; <b>T</b> smoke &middot; <b>B</b> armour plate &middot; <b>H</b> medkit &middot; <b>V</b> flashbang &middot; <b>Tab</b> pack &middot; <b>[ ]</b> sniper zero<br>
           On phone: left thumb moves, right thumb aims, buttons bottom-right.
         </div>
       </div>`);
@@ -570,6 +579,12 @@ export class HUD {
         ${toggle('vsync', 'Frame Limiter')}
         ${toggle('showFps', 'Show FPS')}
         ${toggle('damageNumbers', 'Damage Numbers')}
+        ${toggle('showHud', 'Show HUD')}
+        <div class="sec">CAMERA EFFECTS</div>
+        ${toggle('fxSuppression', 'Suppression Blur')}
+        ${toggle('fxLowHealth', 'Low-Health Colour Drain')}
+        ${toggle('fxFlash', 'Flashbang White-out')}
+        ${toggle('fxChroma', 'Hit Colour Split')}
 
         <div class="sec">GRAPHICS PRESET</div>
         <div class="opt row-between">
@@ -586,6 +601,7 @@ export class HUD {
         ${choice('effects', 'Effects Detail', ['low', 'medium', 'high'])}
         ${choice('viewDistance', 'View Distance', ['near', 'medium', 'far'])}
         ${choice('postFx', 'Post Effects', ['off', 'light', 'full'])}
+        ${toggle('ao', 'Ambient Occlusion')}
         <div class="sec">WORLD</div>
         ${choice('timeOfDay', 'Time of Day', ['day', 'dusk', 'night'])}
         ${choice('weather', 'Weather', ['clear', 'rain'])}
@@ -622,8 +638,32 @@ export class HUD {
       </div>`);
   }
 
+  completePanel() {
+    const g = this.game, S = g.stats;
+    const acc = Math.round(g.accuracy * 100);
+    return this.el(`
+      <div class="panel wide fade">
+        <div class="dead" style="color:var(--teal)">MISSION COMPLETE</div>
+        <div class="sub">THE SIGNAL &middot; ${(g.difficulty || 'normal').toUpperCase()}</div>
+        <div class="grid4">
+          <div class="stat"><div class="k">Time</div><div class="v">${clock(S.time || 0)}</div></div>
+          <div class="stat"><div class="k">Kills</div><div class="v">${g.kills}</div></div>
+          <div class="stat"><div class="k">Headshots</div><div class="v">${g.headshots}</div></div>
+          <div class="stat"><div class="k">Accuracy</div><div class="v">${acc}%</div></div>
+          <div class="stat"><div class="k">Longest kill</div><div class="v">${Math.round(S.longestKill)} m</div></div>
+          <div class="stat"><div class="k">Damage taken</div><div class="v">${Math.round(S.damageTaken)}</div></div>
+          <div class="stat"><div class="k">Checkpoint reloads</div><div class="v">${S.downs}</div></div>
+          <div class="stat"><div class="k">Score</div><div class="v">${fmt(g.score)}</div></div>
+        </div>
+        <div class="xpline">+${g.runXp + 250} XP &middot; Level ${this.prog.level}</div>
+        <button class="btn primary" data-a="restart">Play Again</button>
+        <button class="btn ghost" data-a="quit">Main Menu</button>
+      </div>`);
+  }
+
   overPanel() {
     const g = this.game;
+    if (g.won) return this.completePanel();
     const acc = Math.round(g.accuracy * 100);
     const best = g.mode === MODE.TIME ? this.prog.bestTimeAttack : this.prog.bestScore;
     const isBest = g.score >= best && g.score > 0;
@@ -650,11 +690,35 @@ export class HUD {
       </div>`);
   }
 
-  setObjective(stage, i, n) {
+  setObjective(stage, i, n, first) {
     if (!stage) { this.objBox.classList.add('hidden'); return; }
+    if (!first && this._lastObjId !== stage.id) this.objectivePop(stage.text);
+    this._lastObjId = stage.id;
     this.objText.textContent = stage.text;
     this.objHint.textContent = (stage.hint || '') + '   ' + (i + 1) + '/' + n;
     this.objBox.classList.remove('hidden');
+  }
+
+  objectivePop(text) {
+    const el = $('objpop');
+    el.children[1].textContent = text;
+    el.classList.add('show');
+    audio.sfx.waveClear();
+    clearTimeout(this._popT);
+    this._popT = setTimeout(() => el.classList.remove('show'), 2800);
+  }
+
+  // A soldier's callout: who, what, and which way he is.
+  comms(c) {
+    const box = $('comms');
+    const r = c.rel;
+    const arrow = Math.abs(r.right) < Math.abs(r.ahead) * 0.4 ? (r.ahead > 0 ? '&#9650;' : '&#9660;') : r.right > 0 ? '&#9654;' : '&#9664;';
+    const row = document.createElement('div');
+    row.innerHTML = `<i>${arrow}</i><em>${c.name}</em>&ldquo;${c.text}&rdquo;`;
+    box.appendChild(row);
+    setTimeout(() => row.classList.add('out'), 2600);
+    setTimeout(() => row.remove(), 3100);
+    while (box.children.length > 3) box.firstChild.remove();
   }
 
   setPrompt(text, locked) {
@@ -720,6 +784,9 @@ export class HUD {
           case 'inv-off': g.weapons.unmount(b.dataset.id, b.dataset.slot); this.render(g.state); break;
           case 'inv-plate': this.panel = 'main'; g.resume(); g.gear.usePlate(); break;
           case 'inv-med': this.panel = 'main'; g.resume(); g.gear.useMedkit(); break;
+          case 'inv-frag': this.panel = 'main'; g.resume(); g.gear.throw('frag'); break;
+          case 'inv-smoke': this.panel = 'main'; g.resume(); g.gear.throw('smoke'); break;
+          case 'inv-flash': this.panel = 'main'; g.resume(); g.gear.throw('flash'); break;
           case 'equip':
             g.weapons.switchTo(b.dataset.id, true);
             this.render(g.state);

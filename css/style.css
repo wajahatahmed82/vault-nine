@@ -299,8 +299,39 @@ body{
 }
 
 
+/* ---- map, compass, comms ---- */
+#minimap{position:absolute;left:calc(env(safe-area-inset-left) + 18px);top:calc(env(safe-area-inset-top) + 12px);
+  width:150px;height:150px;pointer-events:none}
+#compass{position:absolute;left:50%;top:calc(env(safe-area-inset-top) + 8px);transform:translateX(-50%);
+  width:360px;height:28px;pointer-events:none;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent)}
+#topbar{top:calc(env(safe-area-inset-top) + 42px)!important}
+#comms{position:absolute;left:calc(env(safe-area-inset-left) + 18px);bottom:calc(env(safe-area-inset-bottom) + 92px);
+  display:flex;flex-direction:column;gap:3px;pointer-events:none;font-size:11px;letter-spacing:.06em}
+#comms div{background:rgba(10,16,22,.62);border-left:2px solid var(--red);padding:3px 8px;color:#dfe9f2;
+  transition:opacity .4s}
+#comms div em{font-style:normal;color:#ff9d95;margin-right:6px;font-size:10px;letter-spacing:.14em}
+#comms div i{font-style:normal;color:var(--amber);margin-right:6px}
+#comms div.out{opacity:0}
+#objpop{position:absolute;left:50%;top:30%;transform:translate(-50%,-6px);text-align:center;opacity:0;
+  transition:opacity .3s,transform .3s;pointer-events:none;text-shadow:0 2px 12px rgba(0,0,0,.95)}
+#objpop.show{opacity:1;transform:translate(-50%,0)}
+#objpop span{display:block;font-size:10px;letter-spacing:.3em;color:var(--amber)}
+#objpop b{display:block;font-size:clamp(16px,2.6vw,22px);font-weight:700;letter-spacing:.06em;color:#eef4fa;margin-top:4px}
+.feed-row .fw{color:#8fa6b8;font-size:10px;margin-left:6px}
+
+/* screen effects without post-processing */
+#screenfx{position:fixed;inset:0;pointer-events:none}
+#screenfx i{position:absolute;inset:0;opacity:0;display:block}
+#screenfx i:nth-child(2){background:radial-gradient(circle,rgba(0,0,0,0) 45%,rgba(140,8,4,.8) 100%)}
+#screenfx i:nth-child(3){background:#fff}
+
+/* HUD hidden: only the controls and the scope stay */
+#combat.nohud > :not(#controls):not(#stick):not(#scope):not(#vignette){display:none!important}
+
 /* ---- campaign HUD ---- */
-#objective{position:absolute;left:calc(env(safe-area-inset-left) + 18px);top:76px;
+#objective{position:absolute;left:calc(env(safe-area-inset-left) + 18px);top:calc(env(safe-area-inset-top) + 172px);
   max-width:340px;padding:9px 12px;background:rgba(10,15,21,.55);
   border-left:2px solid var(--amber);backdrop-filter:blur(3px);
   transition:opacity .35s;pointer-events:none}
@@ -350,6 +381,11 @@ body{
 /* Touch devices: the key badge in the prompt means nothing, the USE button
    does the job, and the prompt moves up so a thumb never covers it. */
 @media (pointer: coarse) {
+  #minimap{width:92px;height:92px;left:calc(env(safe-area-inset-left) + 10px);top:calc(env(safe-area-inset-top) + 8px)}
+  #objective{top:calc(env(safe-area-inset-top) + 106px);left:calc(env(safe-area-inset-left) + 10px);max-width:230px;padding:6px 9px}
+  #compass{width:220px;height:22px}
+  #topbar{top:calc(env(safe-area-inset-top) + 32px)!important}
+  #comms{bottom:auto;top:calc(env(safe-area-inset-top) + 190px);left:calc(env(safe-area-inset-left) + 10px);font-size:10px}
   #prompt em{display:none}
   #prompt{bottom:auto;top:62%}
 }

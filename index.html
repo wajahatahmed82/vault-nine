@@ -17,6 +17,8 @@
 </head>
 <body>
   <canvas id="view"></canvas>
+  <!-- screen effects when post-processing is off; not part of the HUD -->
+  <div id="screenfx"><i></i><i></i><i></i></div>
   <div id="rotate"><b>&#8635;</b><span>Turn your phone sideways to play</span></div>
 
   <div id="combat" class="hidden">
@@ -27,6 +29,11 @@
       <i class="c-t"></i><i class="c-b"></i><i class="c-l"></i><i class="c-r"></i><i class="c-dot"></i>
     </div>
     <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+
+    <canvas id="minimap" width="300" height="300"></canvas>
+    <canvas id="compass" width="720" height="56"></canvas>
+    <div id="comms"></div>
+    <div id="objpop"><span>NEW OBJECTIVE</span><b></b></div>
 
     <div id="topbar">
       <div class="tb"><span>WAVE</span><b id="wave-n">1</b></div>
@@ -61,6 +68,7 @@
         <span id="g-meds"><em>H</em>MED <b>0</b></span>
         <span id="g-frags"><em>G</em>FRAG <b>0</b></span>
         <span id="g-smokes"><em>T</em>SMOKE <b>0</b></span>
+        <span id="g-flashes"><em>V</em>FLASH <b>0</b></span>
       </div>
     </div>
     <div id="itembar"><span id="item-name"></span><i></i></div>

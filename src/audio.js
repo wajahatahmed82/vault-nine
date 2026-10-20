@@ -9,6 +9,11 @@ import * as settings from './settings.js';
 // touching call sites.
 
 let ctx = null, master = null, sfxBus = null, musicBus = null, noiseBuf = null, ready = false;
+// Everything in the world goes through `muffle` on its way out, so a
+// flashbang can dull the whole mix and let it come back.
+let muffle = null;
+// While a positional sound is being built, its tone/noise layers route here.
+let curBus = null;
 
 export function unlock() {
   if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
@@ -19,7 +24,9 @@ export function unlock() {
   sfxBus = ctx.createGain();
   musicBus = ctx.createGain();
   master.connect(ctx.destination);
-  sfxBus.connect(master);
+  muffle = ctx.createBiquadFilter();
+  muffle.type = 'lowpass'; muffle.frequency.value = 22000; muffle.Q.value = 0.5;
+  sfxBus.connect(muffle); muffle.connect(master);
   musicBus.connect(master);
   applyVolumes();
 
@@ -54,7 +61,7 @@ function noise({ dur, vol, type = 'lowpass', f0, f1, q = 1, delay = 0, bus }) {
   const g = ctx.createGain();
   g.gain.setValueAtTime(vol, t);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(filt); filt.connect(g); g.connect(bus || sfxBus);
+  src.connect(filt); filt.connect(g); g.connect(bus || curBus || sfxBus);
   src.start(t); src.stop(t + dur + 0.03);
 }
 
@@ -69,7 +76,7 @@ function tone({ type = 'sine', f0, f1, dur, vol, delay = 0, bus }) {
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(vol, t + 0.004);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g); g.connect(bus || sfxBus);
+  o.connect(g); g.connect(bus || curBus || sfxBus);
   o.start(t); o.stop(t + dur + 0.02);
 }
 
@@ -290,4 +297,159 @@ export function startAmbience() {
 }
 export function stopAmbience() {
   if (droneTimer) { clearInterval(droneTimer); droneTimer = null; }
+}
+
+// ---------------------------------------------------------------- 3D audio --
+//
+// World sounds are placed with a PannerNode (HRTF on desktop, cheaper
+// equal-power on phones) so direction and distance can be heard: gunfire,
+// footsteps, voices, explosions, impacts. Far sounds also lose their top end
+// through a lowpass, which is most of what makes a shot sound distant.
+// The listener follows the camera every frame.
+
+const TOUCH = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+let active = 0;
+const listenerPos = { x: 0, y: 0, z: 0 }, listenerFwd = { x: 0, y: 0, z: -1 }, listenerUp = { x: 0, y: 1, z: 0 };
+// The last few positional events, for tools/presenttest.js.
+export const spatialLog = [];
+let spatialSeq = 0;
+
+export function setListener(pos, fwd, up) {
+  listenerPos.x = pos.x; listenerPos.y = pos.y; listenerPos.z = pos.z;
+  listenerFwd.x = fwd.x; listenerFwd.y = fwd.y; listenerFwd.z = fwd.z;
+  listenerUp.x = up.x; listenerUp.y = up.y; listenerUp.z = up.z;
+  if (!ready) return;
+  const L = ctx.listener, t = ctx.currentTime;
+  if (L.positionX) {
+    L.positionX.setValueAtTime(pos.x, t); L.positionY.setValueAtTime(pos.y, t); L.positionZ.setValueAtTime(pos.z, t);
+    L.forwardX.setValueAtTime(fwd.x, t); L.forwardY.setValueAtTime(fwd.y, t); L.forwardZ.setValueAtTime(fwd.z, t);
+    L.upX.setValueAtTime(up.x, t); L.upY.setValueAtTime(up.y, t); L.upZ.setValueAtTime(up.z, t);
+  } else {
+    L.setPosition(pos.x, pos.y, pos.z);
+    L.setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
+  }
+}
+
+// Where a world position sits relative to the listener: x right, y up,
+// z ahead, plus the distance. Used by the log and by the screen effects.
+export function toListener(x, y, z) {
+  const dx = x - listenerPos.x, dy = y - listenerPos.y, dz = z - listenerPos.z;
+  const f = listenerFwd, u = listenerUp;
+  // right = forward x up
+  const rx = f.y * u.z - f.z * u.y, ry = f.z * u.x - f.x * u.z, rz = f.x * u.y - f.y * u.x;
+  return { right: dx * rx + dy * ry + dz * rz, up: dx * u.x + dy * u.y + dz * u.z, ahead: dx * f.x + dy * f.y + dz * f.z, dist: Math.hypot(dx, dy, dz) };
+}
+
+// Run `build` (which calls tone/noise) with its output placed at (x, y, z).
+// `ref` is the distance at full volume, `roll` how fast it falls off.
+function at(x, y, z, kind, build, { ref = 3, roll = 1, life = 1.5, far = 160 } = {}) {
+  const rel = toListener(x, y, z);
+  spatialLog.push({ seq: ++spatialSeq, kind, x, y, z, ...rel, t: ready ? ctx.currentTime : 0 });
+  if (spatialLog.length > 40) spatialLog.shift();
+  if (!ready || rel.dist > far) return;
+  // a cap on simultaneous panners; past it only close sounds get through
+  if (active > (TOUCH ? 14 : 28) && rel.dist > 25) return;
+  const p = ctx.createPanner();
+  p.panningModel = TOUCH ? 'equalpower' : 'HRTF';
+  p.distanceModel = 'inverse';
+  p.refDistance = ref; p.rolloffFactor = roll; p.maxDistance = 1000;
+  if (p.positionX) { p.positionX.value = x; p.positionY.value = y; p.positionZ.value = z; }
+  else p.setPosition(x, y, z);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = Math.max(900, 20000 * Math.exp(-rel.dist / 55));
+  lp.connect(p); p.connect(sfxBus);
+  active++;
+  curBus = lp;
+  try { build(); } finally { curBus = null; }
+  setTimeout(() => { try { lp.disconnect(); p.disconnect(); } catch (e) { /* gone */ } active--; }, life * 1000);
+}
+
+// Formant voice: a buzzing glottal source through vowel resonances, one
+// syllable per entry, with a consonant burst in front. Not words -- a shouted
+// bark with the rhythm and pitch of the callout; the text says the words.
+const VOWEL = { a: [800, 1200, 2500], e: [500, 1850, 2500], i: [320, 2300, 3000], o: [500, 900, 2400], u: [350, 800, 2300] };
+const CALLOUTS = {
+  contact: ['ko', 'ta'], reloading: ['ri', 'lo', 'di'], manDown: ['ma', 'do'],
+  grenade: ['ge', 'ne'], flash: ['fa', 'ba'], search: ['we', 'i', 'hi'], moving: ['mu', 'vi'],
+};
+function syllable(t0, pitch, vow, cons, vol) {
+  const t = ctx.currentTime + t0;
+  const dur = 0.16;
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(pitch * 1.12, t);
+  o.frequency.exponentialRampToValueAtTime(pitch * 0.9, t + dur);
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+  env.gain.setValueAtTime(vol, t + dur * 0.6);
+  env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(env);
+  const F = VOWEL[vow] || VOWEL.a;
+  [1, 0.55, 0.25].forEach((gv, k) => {
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = F[k]; bp.Q.value = 7;
+    const g = ctx.createGain(); g.gain.value = gv * 2.4;
+    env.connect(bp); bp.connect(g); g.connect(curBus || sfxBus);
+  });
+  o.start(t); o.stop(t + dur + 0.02);
+  if (cons && 'ktgpbdf'.includes(cons)) noise({ dur: 0.035, vol: vol * 0.5, type: 'highpass', f0: cons === 'f' ? 2800 : 1800, q: 0.8, delay: t0 - 0.02 });
+}
+
+export const spatial = {
+  // Enemy gunfire, by weapon class. Loud and carrying.
+  shot(x, y, z, cls = 'rifle') {
+    at(x, y, z, 'shot', () => (GUNS[cls] || GUNS.rifle)(), { ref: 6, roll: 0.55, life: 1.6, far: 400 });
+  },
+  // The crack of a round passing close by, placed where it passed.
+  whiz(x, y, z) {
+    at(x, y, z, 'whiz', () => {
+      noise({ dur: 0.07, vol: 0.32, type: 'bandpass', f0: 3400, f1: 1200, q: 4 });
+      noise({ dur: 0.02, vol: 0.25, type: 'highpass', f0: 5000, q: 0.7 });
+    }, { ref: 1.5, roll: 1, life: 0.6 });
+  },
+  step(x, y, z, surface, vol = 1) {
+    at(x, y, z, 'step', () => sfx.footstep(vol > 1, surface, 'walk'), { ref: 2, roll: 1.4, life: 0.6, far: 40 });
+  },
+  voice(x, y, z, kind, pitch = 120) {
+    const syl = CALLOUTS[kind] || CALLOUTS.contact;
+    at(x, y, z, 'voice:' + kind, () => {
+      syl.forEach((sy, i) => {
+        const vow = sy[sy.length - 1], cons = sy.length > 1 ? sy[0] : null;
+        syllable(i * 0.19, pitch * (i === syl.length - 1 ? 0.92 : 1.05), vow, cons, 0.22);
+      });
+    }, { ref: 4, roll: 0.8, life: 1.4, far: 90 });
+  },
+  death(x, y, z) { at(x, y, z, 'death', () => sfx.robotDeath(), { ref: 4, roll: 0.9 }); },
+  impact(x, y, z, kind) {
+    at(x, y, z, 'impact', () => (kind === 'metal' ? sfx.impactMetal() : kind === 'glass' ? sfx.impactGlass() : sfx.impact()), { ref: 3, roll: 1, life: 0.6, far: 80 });
+  },
+  explosion(x, y, z) { at(x, y, z, 'explosion', () => townSfx.explosion(1), { ref: 10, roll: 0.5, life: 2.2, far: 600 }); },
+  bang(x, y, z) {
+    at(x, y, z, 'bang', () => {
+      noise({ dur: 0.5, vol: 0.9, type: 'highpass', f0: 1200, f1: 400, q: 0.5 });
+      noise({ dur: 0.9, vol: 0.5, type: 'lowpass', f0: 1600, f1: 120, q: 0.7 });
+      tone({ type: 'sine', f0: 90, f1: 40, dur: 0.5, vol: 0.4 });
+    }, { ref: 8, roll: 0.5, life: 1.6, far: 400 });
+  },
+  bounce(x, y, z, vol = 1) { at(x, y, z, 'bounce', () => sfx.bounce(vol), { ref: 2, roll: 1, life: 0.4, far: 40 }); },
+  glass(x, y, z) { at(x, y, z, 'glass', () => townSfx.glassShatter(1), { ref: 5, roll: 0.8, life: 1 }); },
+  alarm(x, y, z) { at(x, y, z, 'alarm', () => townSfx.carAlarm(1), { ref: 6, roll: 0.7, life: 8.5, far: 200 }); },
+};
+
+// Flashbang ears: the world goes dull and a tone rings, then both recover.
+export function deafen(amount, seconds) {
+  if (!ready || !(amount > 0.02)) return;
+  const t = ctx.currentTime;
+  muffle.frequency.cancelScheduledValues(t);
+  muffle.frequency.setValueAtTime(Math.max(350, 22000 * (1 - amount * 0.985)), t);
+  muffle.frequency.setTargetAtTime(22000, t + seconds * 0.4, seconds * 0.35);
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.value = 3600;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.09 * amount, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + seconds);
+  o.connect(g); g.connect(master);
+  o.start(t); o.stop(t + seconds + 0.05);
 }

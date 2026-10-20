@@ -27,6 +27,10 @@ export { KIT };
 const MODEL_SCALE = 1.14;
 
 const HITBOX = new THREE.MeshBasicMaterial({ visible: false });
+// Rounds per magazine by type; an empty magazine means a reload, called out.
+const MAG = { assault: 24, heavy: 8, sniper: 5, elite: 30 };
+// Weapon class each type fires, for the sound of it.
+export const GUN_CLASS = { assault: 'rifle', heavy: 'shotgun', sniper: 'sniper', elite: 'smg', scout: 'smg' };
 let nextId = 1;
 
 export class Enemy {
@@ -48,6 +52,12 @@ export class Enemy {
     this.attackCd = spec.attackCd * Math.random();
     this.burstLeft = 0;
     this.burstT = 0;
+    this.mag = MAG[type] || 24;
+    this.rounds = this.mag;
+    this.reloadT = 0;
+    this.blindT = 0;              // flashbanged: sees nothing until it wears off
+    this.nadeCd = 10 + Math.random() * 10;
+    this.voice = 95 + Math.random() * 55;   // pitch of his callouts
     this.lastSeen = new THREE.Vector3(x, 0, z);
     this.strafeDir = Math.random() < 0.5 ? -1 : 1;
     this.strafeT = 0;
@@ -174,6 +184,7 @@ export class Enemy {
 
   update(dt, ctx) {
     if (this.dead) return this._death(dt);
+    this._ctx = ctx;
 
     const p = ctx.player;
     const pos = this.root.position;
@@ -197,6 +208,7 @@ export class Enemy {
     } else {
       canSee = this.losCache;
     }
+    if (this.blindT > 0) { this.blindT -= dt; canSee = false; }
 
     // ---- noticing the player ----
     // Line of sight alone is not detection. A soldier has to be facing roughly
@@ -221,6 +233,7 @@ export class Enemy {
           this.awareness = 1;
           this.alerted = true;
           if (ctx.onSpotted) ctx.onSpotted(this);
+          if (ctx.callout) ctx.callout(this, 'contact');
         }
       } else if (!this.alerted && !inCone) {
         this.awareness = Math.max(0, this.awareness - dt * 0.25);
@@ -233,6 +246,13 @@ export class Enemy {
     else this.sawAt = (this.sawAt || 0) + dt;
 
     this._think(dt, dist, canSee);
+    // Lost sight of a player who is close: a flashbang over the cover.
+    this.nadeCd -= dt;
+    if (this.alerted && !canSee && this.nadeCd <= 0 && this.sawAt > 2 && this.sawAt < 10 &&
+        dist > 7 && dist < 28 && (this.type === 'elite' || this.type === 'assault') && ctx.throwNade) {
+      this.nadeCd = 22 + Math.random() * 16;
+      if (ctx.throwNade(this, this.lastSeen) && ctx.callout) ctx.callout(this, 'flash');
+    }
     this._act(dt, ctx, dist, canSee, dx, dz);
     this._unstick(dt, ctx, dist);
     this._animate(dt);
@@ -336,7 +356,10 @@ export class Enemy {
     return null;
   }
 
-  _set(s) { this.state = s; this.stateT = 0; }
+  _set(s) {
+    if (s === STATE.SEARCH && (this.state === STATE.CHASE || this.state === STATE.FLANK || this.state === STATE.ATTACK) && this._ctx && this._ctx.callout) this._ctx.callout(this, 'search');
+    this.state = s; this.stateT = 0;
+  }
 
   // Called on nearby soldiers when something happens: a shot, a body, a
   // teammate calling out. They investigate rather than teleport onto the
@@ -503,18 +526,32 @@ export class Enemy {
       const px = pos.x + nx * step, pz = pos.z + nz * step;
       if (!ctx.blocked(px, pos.z)) pos.x = px;
       if (!ctx.blocked(pos.x, pz)) pos.z = pz;
+      const before = Math.floor(this.phase / Math.PI);
       this.phase += dt * this.speed * 3.1;
       this.walking = true;
+      if (Math.floor(this.phase / Math.PI) !== before && ctx.onStep) ctx.onStep(this);
     } else this.walking = false;
   }
 
   _shoot(dt, ctx, dist, canSee) {
+    if (this.reloadT > 0) {
+      this.reloadT -= dt;
+      if (this.reloadT <= 0) this.rounds = this.mag;
+      return;
+    }
     if (!canSee || !this.alerted) return;
     this.attackCd -= dt;
     if (this.spec.ranged) {
       if (this.burstLeft > 0) {
         this.burstT -= dt;
-        if (this.burstT <= 0) { this.burstT = 0.09; this.burstLeft--; this._fireOne(ctx, dist); }
+        if (this.burstT <= 0) {
+          this.burstT = 0.09; this.burstLeft--; this._fireOne(ctx, dist);
+          if (--this.rounds <= 0) {
+            this.burstLeft = 0;
+            this.reloadT = this.type === 'heavy' ? 3.2 : 2.4;
+            if (ctx.callout) ctx.callout(this, 'reloading');
+          }
+        }
         return;
       }
       if (this.attackCd <= 0) {

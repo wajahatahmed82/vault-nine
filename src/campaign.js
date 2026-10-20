@@ -180,6 +180,7 @@ export class Campaign {
     this.prologue = [
       {
         id: 'town',
+        mark: () => { const b = tagged('police'); return b ? T.local(b, b.doorsU[0], b.d / 2 + 1.8) : null; },
         text: 'Find out why Meridian Ridge went silent',
         hint: 'The police station is on Main Street',
         town: true,
@@ -188,6 +189,7 @@ export class Campaign {
       },
       {
         id: 'report',
+        mark: 'policeReport',
         text: 'Read the incident report',
         hint: 'Police station, the desks behind the counter',
         town: true,
@@ -205,6 +207,7 @@ export class Campaign {
       },
       {
         id: 'substation',
+        mark: 'breaker',
         text: 'Restore power at the substation',
         hint: 'North-east, past the end of Ridge Road',
         town: true,
@@ -229,6 +232,7 @@ export class Campaign {
       },
       {
         id: 'gatepass',
+        mark: 'gatePass',
         text: 'Find the station gate pass in the town hall',
         hint: 'Town hall, east side of the square',
         town: true,
@@ -253,6 +257,7 @@ export class Campaign {
       },
       {
         id: 'gate',
+        mark: 'gateDoor',
         text: 'Open the station gate',
         hint: 'Up Station Road, north of town',
         town: true,
@@ -274,6 +279,7 @@ export class Campaign {
     this.stages = [
       {
         id: 'approach',
+        mark: () => this._areaCentre(A.forecourt),
         text: 'Investigate the communications failure',
         hint: 'Approach the station',
         enter: () => { if (!this.fromTown) this.onLog(STORY.intro); },
@@ -281,12 +287,14 @@ export class Campaign {
       },
       {
         id: 'enter',
+        mark: () => this._areaCentre(A.reception),
         text: 'Enter the main building',
         hint: 'The entrance is ahead',
         done: () => this._inArea(A.reception),
       },
       {
         id: 'reception',
+        mark: 'keycard2',
         text: 'Search reception for station access',
         hint: 'Look for a keycard',
         enter: () => {
@@ -308,6 +316,7 @@ export class Campaign {
       },
       {
         id: 'security',
+        mark: 'securityTerminal',
         text: 'Review the security recording',
         hint: 'Security office, east side',
         enter: () => {
@@ -334,6 +343,7 @@ export class Campaign {
       },
       {
         id: 'power',
+        mark: 'generator',
         text: 'Restore facility power',
         hint: 'Generator room, south-east',
         enter: () => {
@@ -359,6 +369,7 @@ export class Campaign {
       },
       {
         id: 'descend',
+        mark: () => this._areaCentre(A.undergroundCorridor),
         text: 'Reach the underground laboratory',
         hint: 'Service stair, behind the south rooms',
         enter: () => {
@@ -378,6 +389,7 @@ export class Campaign {
       },
       {
         id: 'lab',
+        mark: 'labTerminal',
         text: 'Recover the research data',
         hint: 'The laboratory needs a level 4 keycard',
         enter: () => {
@@ -400,6 +412,7 @@ export class Campaign {
       },
       {
         id: 'escape',
+        mark: () => this.game.anchors.extraction,
         text: 'Reach the loading bay and get out',
         hint: 'They know you are here',
         enter: () => {
@@ -476,6 +489,22 @@ export class Campaign {
            Math.abs(p.y - a.y) < 2.0;
   }
 
+  _areaCentre(a) {
+    return a ? { x: (a.minX + a.maxX) / 2, y: a.y || 0, z: (a.minZ + a.maxZ) / 2 } : null;
+  }
+
+  // Where the current objective is, for the minimap and compass: the stage's
+  // `mark` (an interactable's id, or a function giving a point).
+  markerPos() {
+    const s = this.active && this.objective;
+    if (!s || !s.mark) return null;
+    if (typeof s.mark === 'string') {
+      const it = this.interact.get(s.mark);
+      return it && !it.used ? it.pos : null;
+    }
+    return s.mark() || null;
+  }
+
   _nearAnchor(v, r) {
     if (!v) return false;
     const p = this.game.player.state;
@@ -512,6 +541,7 @@ export class Campaign {
     this.checkpoint = null;
     this.stageEnemies.length = 0;
     this.fromTown = from !== 'station' && !!this.game.town;
+    this._fresh = true;   // the first objective of a run is not 'new'
     if (this.fromTown) {
       this.objIdx = -1;
       this.game.townPower = false;
@@ -537,7 +567,8 @@ export class Campaign {
     }
     this.stageEnemies.length = 0;
     if (s.enter) s.enter();
-    this.onObjective(s, this.objIdx, this.stages.length);
+    this.onObjective(s, this.objIdx, this.stages.length, this._fresh);
+    this._fresh = false;
     this._saveCheckpoint();
   }
 

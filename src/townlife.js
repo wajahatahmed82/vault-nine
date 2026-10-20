@@ -379,7 +379,7 @@ export function createLife(game, opts = {}) {
       holeMesh.setMatrixAt(holeMesh.count++, m4);
       holeMesh.instanceMatrix.needsUpdate = true;
     }
-    audio.townSfx.glassShatter(Math.max(0.2, 1 - distTo(hitPoint.x, hitPoint.z) / 40));
+    audio.spatial.glass(hitPoint.x, hitPoint.y, hitPoint.z);
     return true;
   }
 
@@ -412,7 +412,7 @@ export function createLife(game, opts = {}) {
     game.fx.addShake(0.06);
     for (let i = 0; i < 40; i++) glow.spawn(p.x, p.y, p.z, (Math.random() - 0.5) * 12, Math.random() * 9, (Math.random() - 0.5) * 12, 0.7, 1.2, 0.3, 3, 1.4, 0.4, 1, 6, 0.5);
     for (let i = 0; i < 18; i++) smoke.spawn(p.x, p.y + 1, p.z, (Math.random() - 0.5) * 5, 2 + Math.random() * 4, (Math.random() - 0.5) * 5, 4 + Math.random() * 3, 1.5, 6, 0.1, 0.09, 0.08, 0.7, 0, 0.6);
-    audio.townSfx.explosion(Math.max(0.3, 1 - distTo(p.x, p.z) / 80));
+    audio.spatial.explosion(p.x, p.y, p.z);
     F.mesh.material.color.setRGB(0.12, 0.11, 0.1);
     F.mesh.rotation.z = 0.08; F.mesh.position.y += 0.05;
     // blast damage
@@ -449,7 +449,7 @@ export function createLife(game, opts = {}) {
       const a = life.alarms.find((q) => Math.abs(q.x - cx) < 0.5 && Math.abs(q.z - cz) < 0.5);
       if (!a) {
         life.alarms.push({ x: cx, z: cz, y: c.bottom + 1.2, t: 8, ex: (c.maxX - c.minX) / 2, ez: (c.maxZ - c.minZ) / 2 });
-        audio.townSfx.carAlarm(Math.max(0.15, 1 - distTo(cx, cz) / 50));
+        audio.spatial.alarm(cx, 1, cz);
         game.alertNear && game.alertNear(new THREE.Vector3(cx, 0, cz), 30, false);
       }
       return false;

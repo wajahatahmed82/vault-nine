@@ -71,7 +71,8 @@ export class Gear {
     this.ringMat = new THREE.MeshBasicMaterial({ color: 0x7fe9c4, transparent: true, opacity: 0.45, depthWrite: false, blending: THREE.AdditiveBlending });
     // thrown grenades
     this.nadeGeo = new THREE.SphereGeometry(0.055, 8, 6);
-    this.nadeMat = { frag: new THREE.MeshStandardMaterial({ color: 0x46522e }), smoke: new THREE.MeshStandardMaterial({ color: 0x8c8f92 }) };
+    this.nadeMat = { frag: new THREE.MeshStandardMaterial({ color: 0x46522e }), smoke: new THREE.MeshStandardMaterial({ color: 0x8c8f92 }), flash: new THREE.MeshStandardMaterial({ color: 0x9db3c2, metalness: 0.4, roughness: 0.4 }) };
+    this.lastFlash = null;   // the last flashbang's effect on the player, for tests
   }
 
   reset(mode) {
@@ -79,11 +80,12 @@ export class Gear {
     for (const n of this.nades) this.scene.remove(n.mesh);
     this.items.length = 0; this.rounds.length = 0; this.nades.length = 0; this.smokes.length = 0;
     const campaign = mode === 'campaign';
-    this.counts = campaign ? { plates: 1, meds: 1, frags: 1, smokes: 1 } : { plates: 2, meds: 1, frags: 2, smokes: 1 };
+    this.counts = campaign ? { plates: 1, meds: 1, frags: 1, smokes: 1, flashes: 1 } : { plates: 2, meds: 1, frags: 2, smokes: 1, flashes: 1 };
+    this.lastFlash = null;
   }
 
   snapshot() { return { counts: { ...this.counts } }; }
-  restore(s) { if (s && s.counts) this.counts = { ...s.counts }; }
+  restore(s) { if (s && s.counts) this.counts = { flashes: 0, ...s.counts }; }
 
   // ---------------------------------------------------------- loot --
 
@@ -250,7 +252,7 @@ export class Gear {
 
   throw(kind) {
     const g = this.game, W = g.weapons, C = this.counts;
-    const key = kind === 'frag' ? 'frags' : 'smokes';
+    const key = kind === 'frag' ? 'frags' : kind === 'flash' ? 'flashes' : 'smokes';
     if (C[key] <= 0 || W.busy) return false;
     if (!W.useItem('throw', 0.5)) return false;
     C[key]--;
@@ -263,8 +265,23 @@ export class Gear {
     const mesh = new THREE.Mesh(this.nadeGeo, this.nadeMat[kind]);
     mesh.position.copy(p); mesh.castShadow = true;
     this.scene.add(mesh);
-    this.nades.push({ kind, p, v, mesh, t: 0, fuse: kind === 'frag' ? CFG.gear.fragFuse : CFG.gear.smokeDelay, rest: false });
+    this.nades.push({ kind, p, v, mesh, t: 0, fuse: this._fuse(kind), rest: false });
     audio.sfx.pin(); audio.sfx.throwIt();
+    return true;
+  }
+
+  _fuse(kind) { return kind === 'frag' ? CFG.gear.fragFuse : kind === 'flash' ? CFG.gear.flashFuse : CFG.gear.smokeDelay; }
+
+  // A soldier lobs one at where he last saw the player: a 1.1 s arc.
+  throwFrom(robot, target, kind = 'flash') {
+    const o = robot.root.position.clone(); o.y += 1.7;
+    const t = 1.1;
+    const tgt = new THREE.Vector3(target.x, this.game.player.groundAt(target.x, target.z, (target.y || o.y) + 2) + 0.2, target.z);
+    const v = tgt.clone().sub(o).divideScalar(t); v.y += 0.5 * G * t;
+    const mesh = new THREE.Mesh(this.nadeGeo, this.nadeMat[kind]);
+    mesh.position.copy(o); mesh.castShadow = true;
+    this.scene.add(mesh);
+    this.nades.push({ kind, p: o, v, mesh, t: 0, fuse: this._fuse(kind), rest: false, enemy: true });
     return true;
   }
 
@@ -287,7 +304,7 @@ export class Gear {
               n.p.copy(hit.point).addScaledVector(nrm, 0.07);
               const vn = n.v.dot(nrm);
               n.v.addScaledVector(nrm, -1.45 * vn).multiplyScalar(0.55);
-              if (Math.abs(vn) > 2) audio.sfx.bounce(Math.min(1, Math.abs(vn) / 10));
+              if (Math.abs(vn) > 2) audio.spatial.bounce(n.p.x, n.p.y, n.p.z, Math.min(1, Math.abs(vn) / 10));
               continue;
             }
             n.p.add(step);
@@ -295,9 +312,13 @@ export class Gear {
           const floor = g.player.groundAt(n.p.x, n.p.z, n.p.y + 0.2);
           if (n.p.y - 0.055 < floor) {
             n.p.y = floor + 0.055;
-            if (Math.abs(n.v.y) > 2) audio.sfx.bounce(Math.min(1, Math.abs(n.v.y) / 10));
+            if (Math.abs(n.v.y) > 2) audio.spatial.bounce(n.p.x, n.p.y, n.p.z, Math.min(1, Math.abs(n.v.y) / 10));
             n.v.y = -n.v.y * 0.38; n.v.x *= 0.62; n.v.z *= 0.62;
-            if (n.v.length() < 0.6) { n.v.set(0, 0, 0); n.rest = true; }
+            if (n.v.length() < 0.6) {
+              n.v.set(0, 0, 0); n.rest = true;
+              // a live frag at their feet: someone shouts it
+              if (n.kind === 'frag' && g.calloutNear) g.calloutNear(n.p, 10, 'grenade');
+            }
           }
         }
         n.mesh.position.copy(n.p);
@@ -305,6 +326,7 @@ export class Gear {
       }
       if (n.t >= n.fuse) {
         if (n.kind === 'frag') this._explode(n.p);
+        else if (n.kind === 'flash') this._flash(n.p);
         else this.smokes.push({ p: n.p.clone(), t: 0, r: 0 });
         this.scene.remove(n.mesh);
         this.nades.splice(i, 1);
@@ -322,7 +344,8 @@ export class Gear {
     }
     const ps = g.player.state;
     const camD = g.camera.position.distanceTo(p);
-    audio.townSfx.explosion(Math.max(0.25, 1 - camD / 90));
+    audio.spatial.explosion(p.x, p.y, p.z);
+    if (g.screen && camD < 14) g.screen.suppress(0.6 * (1 - camD / 14), audio.toListener(p.x, p.y, p.z));
     g.fx.addShake(Math.max(0, 0.07 * (1 - camD / 30)));
     // damage, shielded by solid cover
     const R = G2.fragRadius;
@@ -342,6 +365,37 @@ export class Gear {
       if (res && res.killed) g.registerKill(r, false, q.clone());
     }
     g.alertNear(p, 60, false);
+  }
+
+  // Flashbang: blinds whoever is looking at it -- the player's screen whites
+  // out and their ears ring; soldiers in sight of it stop seeing for a while.
+  _flash(p) {
+    const g = this.game, G2 = CFG.gear;
+    audio.spatial.bang(p.x, p.y, p.z);
+    g.fx.explode(p, 0xffffff);
+    const cam = g.camera.position;
+    const d = cam.distanceTo(p);
+    const ps = g.player.state;
+    const seen = d < G2.flashRadius && g.canSee({ x: p.x, y: p.y + 0.3, z: p.z }, ps);
+    let strength = 0;
+    if (seen) {
+      const fwd = new THREE.Vector3(); g.camera.getWorldDirection(fwd);
+      const to = p.clone().sub(cam).normalize();
+      const facing = Math.max(0, fwd.dot(to));
+      strength = Math.min(1, (1 - d / G2.flashRadius) * (0.25 + 0.75 * facing) * 1.7);
+      if (g.screen) g.screen.flashbang(strength);
+    }
+    audio.deafen(Math.min(1, (seen ? strength : 0) * 0.9 + Math.max(0, 1 - d / 14) * 0.5), 1.5 + 3 * strength);
+    this.lastFlash = { d: +d.toFixed(1), seen, strength: +strength.toFixed(2) };
+    for (const r of g.robots) {
+      if (r.dead) continue;
+      const q = r.root.position;
+      const dr = Math.hypot(q.x - p.x, q.z - p.z);
+      if (dr > G2.flashBlind) continue;
+      if (!g.canSee({ x: p.x, y: p.y + 0.3, z: p.z }, { x: q.x, y: q.y, z: q.z }, true)) continue;
+      r.blindT = Math.max(r.blindT || 0, 1.2 + 4.5 * (1 - dr / G2.flashBlind));
+    }
+    g.alertNear(p, 40, false);
   }
 
   _stepSmokes(dt) {

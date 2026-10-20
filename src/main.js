@@ -7,6 +7,7 @@ import * as audio from './audio.js';
 import * as settings from './settings.js';
 import { createAtmosphere } from './sky.js';
 import { createPost } from './post.js';
+import { ScreenFX } from './screenfx.js';
 import { createLife } from './townlife.js';
 
 const canvas = document.getElementById('view');
@@ -44,6 +45,8 @@ game.atmos.setWeather(settings.get('weather'));
 game.life = createLife(game, { lowEffects: TOUCH_ONLY, fireLight: !TOUCH_ONLY });
 game.life.setRain(settings.get('weather') === 'rain');
 game.post = createPost(renderer, game);
+game.screen = new ScreenFX(renderer.domElement);
+game.screen.post = game.post;
 game.post.setGrade(settings.get('timeOfDay'));
 
 // ---------------------------------------------------------------- quality ----
@@ -125,12 +128,16 @@ function applyQuality() {
   game.fx.setBudget(settings.get('effects'));
   // post effects: phones on auto skip them entirely
   const pf = q === 'auto' ? (TOUCH_ONLY ? 'off' : 'full') : settings.get('postFx');
-  if (game.post) game.post.setMode(pf);
+  if (game.post) {
+    game.post.setMode(pf);
+    // AO on HIGH / ULTRA (and desktop auto, which drops it first when slow)
+    game.post.ao = pf !== 'off' && (q === 'auto' ? !TOUCH_ONLY : !!settings.get('ao'));
+  }
   applySize();
 }
 applyQuality();
 settings.onChange((k) => {
-  if (k === null || ['quality', 'shadowQuality', 'renderScale', 'effects', 'viewDistance', 'postFx'].includes(k)) {
+  if (k === null || ['quality', 'shadowQuality', 'renderScale', 'effects', 'viewDistance', 'postFx', 'ao'].includes(k)) {
     applyQuality();
   }
   if (k === null || k === 'timeOfDay') { game.atmos.setTime(settings.get('timeOfDay')); game.post.setGrade(settings.get('timeOfDay')); }
@@ -148,7 +155,8 @@ function autoTune(dt, frameMs) {
   if (tuneT < 0.9) return;
   tuneT = 0;
   if (frameAvg > 17.5) {
-    if (shadowsOn) setShadows(false, 512);
+    if (game.post && game.post.ao) game.post.ao = false;
+    else if (shadowsOn) setShadows(false, 512);
     else if (renderScale > 0.6) { renderScale = Math.max(0.6, renderScale - 0.12); applySize(); }
   } else if (frameAvg < 12.5) {
     const cap = TOUCH_ONLY ? 1.0 : Math.min(DPR_CAP, 1.4);
@@ -229,6 +237,7 @@ window.__rs = {
   // test hook: place a soldier without importing enemies.js, so the tools also
   // run against the single-file build
   spawnSoldier: (type, x, z, yaw) => game.campaign._spawn(type, x, z, { yaw: yaw || 0 }),
+  audioLog: () => audio.spatialLog,
   get renderScale() { return renderScale; },
   get shadowsOn() { return shadowsOn; },
   setQuality(q) { settings.set('quality', q); applyQuality(); },

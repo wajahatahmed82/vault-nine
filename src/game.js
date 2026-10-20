@@ -5,7 +5,7 @@ import { Campaign } from './campaign.js';
 import { Decals } from './decals.js';
 import { WeaponSystem, VIEW_LAYER } from './weapons.js';
 import { Player } from './player.js';
-import { Robot, pickType, STATE as AI } from './enemies.js';
+import { Robot, pickType, STATE as AI, GUN_CLASS } from './enemies.js';
 import { FX } from './fx.js';
 import { rayBox } from './collide.js';
 import { buildNav } from './nav.js';
@@ -15,6 +15,12 @@ import * as settings from './settings.js';
 
 export const STATE = { MENU: 'menu', PLAY: 'play', PAUSED: 'paused', OVER: 'over' };
 export const MODE = { CAMPAIGN: 'campaign', SURVIVAL: 'survival', TIME: 'timeattack' };
+
+// What each callout says, for the caption under the voice.
+export const CALLOUT_TEXT = {
+  contact: 'Contact!', reloading: 'Reloading!', manDown: 'Man down!', grenade: 'Grenade!',
+  flash: 'Flashbang out!', search: "Where'd he go?",
+};
 
 export class Game {
   constructor(renderer, input, progression) {
@@ -144,6 +150,14 @@ export class Game {
 
     this.timeLeft = CFG.timeAttack.duration;
 
+    // presentation state
+    this.fireMarks = [];            // where soldiers fired from, for map and compass
+    this.calloutT = 0;              // shared cooldown so voices do not pile up
+    this.pendingCallouts = [];
+    this.won = false;
+    this.stats = { downs: 0, damageTaken: 0, longestKill: 0, startT: 0 };
+    if (this.screen) this.screen.reset();
+
     this.fovCurrent = this.baseFov;
     this.camera.fov = this.baseFov;
     this.camera.updateProjectionMatrix();
@@ -168,6 +182,7 @@ export class Game {
     this.input.requestLock();
     audio.unlock();
     this.breakT = 2.0;
+    this.stats.startT = this.elapsed;
     if (this.mode === MODE.CAMPAIGN) {
       // No wave director in the campaign: soldiers are placed by objective, and
       // the level starts empty.
@@ -506,18 +521,15 @@ export class Game {
     if (kind === 'metal') {
       this.fx.sparkBurst(hit.point, n, 7);
       this.fx.puff(hit.point, 0.18, 0x9a958c);
-      audio.sfx.impactMetal();
     } else if (kind === 'wood') {
       this.fx.puff(hit.point, 0.30, 0x8a6a46);
-      audio.sfx.impact();
     } else if (kind === 'glass') {
       this.fx.sparkBurst(hit.point, n, 3);
-      audio.sfx.impactGlass();
     } else {
       this.fx.puff(hit.point, 0.42, 0xb3aa98);
       this.fx.sparkBurst(hit.point, n, 2);
-      audio.sfx.impact();
     }
+    audio.spatial.impact(hit.point.x, hit.point.y, hit.point.z, kind);
     return { robot: false };
   }
 
@@ -612,9 +624,22 @@ export class Game {
 
     this.fx.explode(point, 0xc9bda6);
     if (this.gear) this.gear.dropFrom(robot);
-    audio.sfx.robotDeath();
+    const rp = robot.root.position;
+    audio.spatial.death(rp.x, rp.y + 1, rp.z);
     audio.sfx.killConfirm(headshot);
-    this.onKill({ headshot, point, type: robot.type, name: robot.spec.name, mult: this.multiplier });
+    const ps = this.player.state;
+    const dist = Math.hypot(rp.x - ps.x, rp.z - ps.z);
+    this.stats.longestKill = Math.max(this.stats.longestKill, dist);
+    // the nearest man still standing sees him go down
+    let mate = null, md = 30;
+    for (const r of this.robots) {
+      if (r.dead || r === robot) continue;
+      const d = Math.hypot(r.root.position.x - rp.x, r.root.position.z - rp.z);
+      if (d < md) { md = d; mate = r; }
+    }
+    if (mate) this.pendingCallouts.push({ r: mate, kind: 'manDown', t: 0.6 });
+    this.onKill({ headshot, point, type: robot.type, name: robot.spec.name, mult: this.multiplier,
+      weapon: w.spec.name, dist: Math.round(dist) });
   }
 
   // A robot shot at the player. Ranged attacks are hitscan with a visible
@@ -624,6 +649,11 @@ export class Game {
     if (origin && dir) {
       const camPos = new THREE.Vector3();
       this.camera.getWorldPosition(camPos);
+      // you hear where it came from, and it shows on the map and compass
+      audio.spatial.shot(origin.x, origin.y, origin.z, GUN_CLASS[robot && robot.type] || 'rifle');
+      this.fireMarks.push({ x: origin.x, z: origin.z, t: this.elapsed });
+      if (this.fireMarks.length > 24) this.fireMarks.shift();
+      const from = audio.toListener(origin.x, origin.y, origin.z);
       const end = origin.clone().addScaledVector(dir, 90);
 
       // does cover stop it first?
@@ -640,12 +670,24 @@ export class Game {
       if (coverDist < along) {
         this.fx.tracer(origin, blocked[0].point, 0xff8a5c);
         this.fx.puff(blocked[0].point, 0.35, 0xffb07a);
+        // rounds smacking into the cover you are behind
+        const bp = blocked[0].point;
+        const near = bp.distanceTo(camPos);
+        if (near < 3.5) {
+          audio.spatial.impact(bp.x, bp.y, bp.z, 'masonry');
+          if (this.screen) this.screen.suppress(0.22 * (1 - near / 3.5) + 0.08, from);
+        }
         return;
       }
       this.fx.tracer(origin, end, 0xff8a5c);
       // 0.55m is roughly a torso; wider than that and it goes past
       if (perp > 0.55 || along < 0) {
-        if (perp < 2.2) audio.sfx.nearMiss();
+        if (perp < 2.2 && along > 0) {
+          // the crack is heard where the round passed
+          const pass = origin.clone().addScaledVector(dir, along);
+          audio.spatial.whiz(pass.x, pass.y, pass.z);
+          if (this.screen) this.screen.suppress(0.32 * (1 - perp / 2.2) + 0.1, from);
+        }
         return;
       }
       audio.sfx.impact();
@@ -657,6 +699,8 @@ export class Game {
     if (this.state !== STATE.PLAY) return;
     this.hurtT = CFG.player.regenDelay;
     this.fx.addShake(0.018);
+    if (this.screen) this.screen.hit(dmg);
+    this.stats.damageTaken += dmg;
     const dead = this.player.hurt(dmg);
     this.onDamaged(this.player.state.health / CFG.player.maxHealth);
     if (Math.random() < 0.5) audio.sfx.hurt();
@@ -688,6 +732,7 @@ export class Game {
 
   update(dt) {
     this.fx.update(dt);
+    if (this.screen) this.screen.update(this.state === STATE.PLAY ? dt : 0, this.player.state.health, CFG.player.maxHealth);
 
     if (this.state !== STATE.PLAY) {
       if (this.state === STATE.MENU || this.state === STATE.OVER) {
@@ -710,6 +755,7 @@ export class Game {
     if (inp.reload) this.weapons.startReload();
     if (inp.frag) this.gear.throw('frag');
     if (inp.smoke) this.gear.throw('smoke');
+    if (inp.flash) this.gear.throw('flash');
     if (inp.plate) this.gear.usePlate();
     if (inp.medkit) this.gear.useMedkit();
     if (inp.zero && this.weapons.cycleZero(inp.zero)) audio.sfx.zero();
@@ -769,6 +815,21 @@ export class Game {
       holdBreath: inp.sprint && this.weapons.ads > 0.6,
     });
     this._fov(dt);
+
+    // the ears follow the camera
+    {
+      const cam = this.camera, f = this._lf || (this._lf = new THREE.Vector3()), u = this._lu || (this._lu = new THREE.Vector3());
+      cam.getWorldDirection(f);
+      u.set(0, 1, 0).applyQuaternion(cam.quaternion);
+      audio.setListener(cam.position, f, u);
+    }
+    this._stepsThisFrame = 0;
+    if (this.calloutT > 0) this.calloutT -= dt;
+    for (let i = this.pendingCallouts.length - 1; i >= 0; i--) {
+      const c = this.pendingCallouts[i];
+      c.t -= dt;
+      if (c.t <= 0) { this.pendingCallouts.splice(i, 1); this.callout(c.r, c.kind); }
+    }
 
     // ---- robots ----
     const ctx = this._ctx();
@@ -875,6 +936,8 @@ export class Game {
 
   reloadCheckpoint() {
     if (!this.campaign.hasCheckpoint()) { this.gameOver(); return; }
+    this.stats.downs++;
+    if (this.screen) this.screen.reset();
     this.state = STATE.PLAY;
     this.campaign.restore();
     this.hurtT = 0;
@@ -891,6 +954,9 @@ export class Game {
         navSteer: (e, gx, gz, dt) => this.navSteer(e, gx, gz, dt),
         onAttack: (dmg, origin, dir, robot) => this.robotAttack(dmg, origin, dir, robot),
         onSpotted: (robot) => this.alertNear(robot.root.position, 16, true),
+        callout: (robot, kind) => this.callout(robot, kind),
+        onStep: (robot) => this._enemyStep(robot),
+        throwNade: (robot, target) => this.gear.throwFrom(robot, target, 'flash'),
       };
     }
     this._ctxCache.player = this.player.state;
@@ -905,6 +971,55 @@ export class Game {
       const d = Math.hypot(r.root.position.x - pos.x, r.root.position.z - pos.z);
       if (d <= radius) r.alertTo(pos.x, pos.z, hard && d < radius * 0.6);
     }
+  }
+
+  // A soldier shouts. Heard from where he stands; captioned for the HUD.
+  callout(robot, kind) {
+    if (!robot || robot.dead || this.calloutT > 0) return false;
+    if ((robot.calloutAt || -99) > this.elapsed - 4) return false;
+    const p = robot.root.position;
+    if (Math.hypot(p.x - this.player.state.x, p.z - this.player.state.z) > 70) return false;
+    robot.calloutAt = this.elapsed;
+    this.calloutT = 0.9;
+    audio.spatial.voice(p.x, p.y + 1.65, p.z, kind, robot.voice || 120);
+    if (this.onCallout) this.onCallout({ kind, text: CALLOUT_TEXT[kind] || kind, name: robot.spec.name, rel: audio.toListener(p.x, p.y + 1.65, p.z) });
+    return true;
+  }
+
+  // The nearest soldier within `r` of a point calls it out.
+  calloutNear(pt, r, kind) {
+    let best = null, bd = r;
+    for (const e of this.robots) {
+      if (e.dead) continue;
+      const d = Math.hypot(e.root.position.x - pt.x, e.root.position.z - pt.z);
+      if (d < bd) { bd = d; best = e; }
+    }
+    return best ? this.callout(best, kind) : false;
+  }
+
+  // Enemy footsteps, close ones only (and only a few per frame).
+  _enemyStep(robot) {
+    const p = robot.root.position, ps = this.player.state;
+    const d = Math.hypot(p.x - ps.x, p.z - ps.z);
+    if (d > 24 || this._stepsThisFrame > 3) return;
+    this._stepsThisFrame = (this._stepsThisFrame || 0) + 1;
+    const surface = this.town && !this.player.inVoid(p.x, p.z) ? this.town.groundKind(p.x, p.z, p.y + 0.5) : 'concrete';
+    audio.spatial.step(p.x, p.y + 0.05, p.z, surface, robot.state === AI.CHASE ? 1.5 : 1);
+  }
+
+  // The campaign's last objective is done.
+  completeMission() {
+    if (this.state !== STATE.PLAY) return;
+    this.won = true;
+    this.state = STATE.OVER;
+    this.input.enabled = false;
+    this.input.wantPointerLock = false;
+    if (document.pointerLockElement) document.exitPointerLock();
+    audio.sfx.levelUp();
+    this.stats.time = this.elapsed - this.stats.startT;
+    const levelled = this.prog.addXp(this.runXp + 250);
+    if (levelled) this.onLevelUp(this.prog.level);
+    this.onStateChange(this.state);
   }
 
   // F on a weapon or attachment lying in reach.
@@ -987,6 +1102,8 @@ export class Game {
     cam.near = 0.2; cam.updateProjectionMatrix();
     cam.layers.set(0);
     r.render(this.scene, cam);
+    // ambient occlusion from this pass's depth, before the weapon clears it
+    if (this.post) this.post.applyAO(target, cam);
     cam.near = 0.03; cam.updateProjectionMatrix();
 
     // The weapon pass must not repaint the sky. An equirectangular

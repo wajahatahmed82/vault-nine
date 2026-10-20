@@ -13,6 +13,7 @@ export const DEFAULTS = {
   effects: 'medium',         // low | medium | high  -- particle and spark budget
   viewDistance: 'medium',    // near | medium | far
   postFx: 'full',            // off | light (grade + FXAA) | full (+ bloom)
+  ao: false,                 // ambient occlusion (HIGH / ULTRA)
   timeOfDay: 'dusk',         // day | dusk | night
   weather: 'clear',          // clear | rain
   antialias: false,          // needs a page reload; the context is fixed at boot
@@ -22,6 +23,12 @@ export const DEFAULTS = {
   showFps: false,
   damageNumbers: false,     // floating damage figures on hit
   invertY: false,
+  // camera effects, each switchable
+  fxSuppression: true,
+  fxLowHealth: true,
+  fxFlash: true,
+  fxChroma: true,
+  showHud: true,
 };
 
 let data = load();
@@ -40,7 +47,7 @@ function load() {
 export function get(k) { return data[k]; }
 export function all() { return { ...data }; }
 
-const KNOBS = ['shadowQuality', 'renderScale', 'effects', 'viewDistance', 'antialias', 'postFx'];
+const KNOBS = ['shadowQuality', 'renderScale', 'effects', 'viewDistance', 'antialias', 'postFx', 'ao'];
 
 export function set(k, v) {
   data[k] = v;
@@ -52,10 +59,10 @@ export function set(k, v) {
 
 // Presets write the individual knobs, so the two never disagree.
 export const PRESETS = {
-  low:    { shadowQuality: 'off',    renderScale: 0.70, effects: 'low',    viewDistance: 'near',   antialias: false, postFx: 'off' },
-  medium: { shadowQuality: 'low',    renderScale: 1.00, effects: 'medium', viewDistance: 'medium', antialias: false, postFx: 'light' },
-  high:   { shadowQuality: 'medium', renderScale: 1.25, effects: 'high',   viewDistance: 'far',    antialias: true,  postFx: 'full' },
-  ultra:  { shadowQuality: 'high',   renderScale: 1.50, effects: 'high',   viewDistance: 'far',    antialias: true,  postFx: 'full' },
+  low:    { shadowQuality: 'off',    renderScale: 0.70, effects: 'low',    viewDistance: 'near',   antialias: false, postFx: 'off',   ao: false },
+  medium: { shadowQuality: 'low',    renderScale: 1.00, effects: 'medium', viewDistance: 'medium', antialias: false, postFx: 'light', ao: false },
+  high:   { shadowQuality: 'medium', renderScale: 1.25, effects: 'high',   viewDistance: 'far',    antialias: true,  postFx: 'full',  ao: true },
+  ultra:  { shadowQuality: 'high',   renderScale: 1.50, effects: 'high',   viewDistance: 'far',    antialias: true,  postFx: 'full',  ao: true },
 };
 
 export function applyPreset(name) {

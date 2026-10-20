@@ -125,7 +125,8 @@ export const CFG = {
     hearing: 46,          // metres an unsuppressed shot carries to soldiers
     plateArmour: 50, plateTime: 1.2, maxPlates: 4,
     medHeal: 65, medTime: 2.6, maxMeds: 3,
-    maxFrags: 3, maxSmokes: 2,
+    maxFrags: 3, maxSmokes: 2, maxFlashes: 2,
+    flashFuse: 1.6, flashRadius: 22, flashBlind: 14,
     fragFuse: 3.0, fragRadius: 8, fragCore: 2.5, fragDamage: 150,
     smokeDelay: 1.4, smokeTime: 18, smokeRadius: 5.5,
     throwSpeed: 16,
