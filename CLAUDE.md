@@ -219,6 +219,8 @@ Night: 6 lamp point lights on desktop, shop-window light pools (`windowPools`), 
 - **Project the sun inside the far plane.** `camera.position + sunDir * 1000` lies past `camera.far` and projects as "behind the camera"; the shafts never switched on.
 - **Captures must run one real `game.update` per view.** The shadow boxes and lamp lights follow the player, not the camera; photo mode alone left every view outside both shadow maps.
 - **A script cut off mid-capture leaves photo mode on** (`game.update` is the no-op). Reload the page before the next capture.
+- **Never junction `node_modules` into a git worktree.** `git worktree remove --force` followed the junction and emptied the real `node_modules` (restored with `npm ci`; esbuild comes from the npx cache, not the lockfile). Copy what a temp checkout needs, or delete the junction first.
+- **The Artifact preview cannot load `docs/assets`** (no `.hdr` type, no outside requests): it shows the painted sky. The live site has the photo skies.
 - **The photo skies are far brighter than the painted ones.** Day needed env 0.38, hemi x0.3, exposure 0.82 or pale yards blew out to white.
 
 ## Mobile and Android
