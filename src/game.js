@@ -920,6 +920,7 @@ export class Game {
     this.vehicle.update(dt, drive);
     if (this.vehicle.driving) {
       this.weapons.model.gun.visible = false;
+      if (this.weapons.arms) this.weapons.arms.mesh.visible = false;
       this.vehicle.placeDriverAndCamera(dt, look);
     }
 
@@ -1038,6 +1039,7 @@ export class Game {
         callout: (robot, kind) => this.callout(robot, kind),
         onStep: (robot) => this._enemyStep(robot),
         throwNade: (robot, target) => this.gear.throwFrom(robot, target, 'flash'),
+        groundAt: (x, z, y) => this.player.groundAt(x, z, y),
       };
     }
     this._ctxCache.player = this.player.state;

@@ -52,6 +52,10 @@ jobs:
           # the phone build only ships the 1k skies the game asks for on phones
           mkdir -p www/assets/sky
           cp docs/assets/sky/*_1k.hdr www/assets/sky/
+          # phones load the six small soldier files (humans.js PHONE_SKIP)
+          mkdir -p www/assets/chars
+          cp docs/assets/chars/*_lo.glb docs/assets/chars/LICENSE-Rocketbox.txt www/assets/chars/
+          rm -f www/assets/chars/military_male_01_lo.glb www/assets/chars/military_female_02_lo.glb
           npx cap sync android
 
       - name: Build test APK

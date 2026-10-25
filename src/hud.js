@@ -440,6 +440,7 @@ export class HUD {
     if (this.panel === 'inventory' && state === STATE.PAUSED) node = this.inventoryPanel();
     else if (this.panel === 'loadout') node = this.loadoutPanel();
     else if (this.panel === 'settings') node = this.settingsPanel(state === STATE.PAUSED);
+    else if (this.panel === 'credits') node = this.creditsPanel();
     else if (state === STATE.PAUSED) node = this.pausePanel();
     else if (state === STATE.OVER) node = this.overPanel();
     else node = this.mainPanel();
@@ -475,7 +476,11 @@ export class HUD {
           ${next ? `<div class="lvlhint">Next unlock: <b>${next.spec.name}</b> at level ${next.spec.unlockLevel}</div>` : ''}
         </div>
 
-        <div class="modes">
+        ${this.loadDone ? '' : `<div class="loadbox">
+          <div class="lvlrow"><span>LOADING SOLDIERS</span><span class="loadpct">${Math.round((this.loadFrac || 0) * 100)}%</span></div>
+          <div class="bar"><i class="loadfill" style="width:${((this.loadFrac || 0) * 100).toFixed(0)}%"></i></div>
+        </div>`}
+        <div class="modes${this.loadDone ? '' : ' loading'}">
           <button class="mode" data-a="play-campaign">
             <b>MISSION 1 — THE SIGNAL</b><span>Meridian Ridge Research Station. Find out what happened.</span>
             <i>DIFFICULTY ${(this.difficulty || 'normal').toUpperCase()}</i>
@@ -502,6 +507,7 @@ export class HUD {
         <div class="row">
           <button class="btn" data-a="loadout">Loadout${p.points ? ` <em>${p.points}</em>` : ''}</button>
           <button class="btn" data-a="settings">Settings</button>
+          <button class="btn" data-a="credits">Credits</button>
         </div>
         <div class="hint">
           <b>WASD</b> move &middot; <b>Shift</b> sprint (twice: dash) &middot; <b>Ctrl</b> crouch / slide &middot; <b>Z</b> prone &middot; <b>Space</b> jump / vault<br>
@@ -551,6 +557,28 @@ export class HUD {
         <div class="list">${guns}</div>
         <div class="sec">UPGRADES</div>
         <div class="list">${ups}</div>
+        <button class="btn" data-a="back">Back</button>
+      </div>`);
+  }
+
+  // ---- credits ----
+  // Third-party work in the game (full list with sources in ASSETS.md). The
+  // soldier models are MIT and the notice must ship with them; the rest is
+  // CC0 and credited anyway.
+  creditsPanel() {
+    return this.el(`
+      <div class="panel wide fade credits">
+        <div class="h1">CREDITS</div>
+        <div class="sub">Vault Nine is code-built. These are the parts made by others.</div>
+        <div class="sec">SOLDIERS</div>
+        <p><b>Microsoft Rocketbox</b> avatar library &mdash; eight military avatars, retextured.<br>
+        MIT License, Copyright (c) 2020 Microsoft.</p>
+        <p class="lic">Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</p>
+        <p><b>Universal Animation Library</b> by Quaternius &mdash; motion capture. CC0 1.0.</p>
+        <div class="sec">SKIES</div>
+        <p>Kloofendal 48d Partly Cloudy, Belfast Sunset, Kloppenheim 02 &mdash; Poly Haven. CC0 1.0.</p>
+        <div class="sec">TEXTURES</div>
+        <p>Bricks104, Plaster001, WoodSiding008, Concrete034, RoofingTiles003, RoofingTiles013A, Grass005, PavingStones138, Asphalt033 &mdash; ambientCG. CC0 1.0.</p>
         <button class="btn" data-a="back">Back</button>
       </div>`);
   }
@@ -759,6 +787,22 @@ export class HUD {
     this.logT = 3.2 + (entry.lines || []).length * 1.5;
   }
 
+  // First-load progress of the soldier models, shown on the main menu; the
+  // mission buttons wait for it.
+  setLoading(frac, done) {
+    if (done === this.loadDone && Math.abs(frac - (this.loadFrac || 0)) < 0.01) return;
+    this.loadFrac = frac;
+    const was = this.loadDone;
+    this.loadDone = done;
+    const root = this.menuEl || document;
+    root.querySelectorAll('.loadpct').forEach((e) => { e.textContent = `${Math.round(frac * 100)}%`; });
+    root.querySelectorAll('.loadfill').forEach((e) => { e.style.width = `${(frac * 100).toFixed(0)}%`; });
+    if (done && !was) {
+      root.querySelectorAll('.loadbox').forEach((e) => e.remove());
+      root.querySelectorAll('.modes.loading').forEach((e) => e.classList.remove('loading'));
+    }
+  }
+
   // ---------------- wiring ----------------
 
   wire(scope) {
@@ -769,6 +813,8 @@ export class HUD {
         e.stopPropagation();
         audio.unlock();
         const a = b.dataset.a;
+        // nothing starts until the soldier models are in (or have failed)
+        if (a.startsWith('play-') && !this.loadDone) return;
         audio.sfx[a === 'back' || a === 'quit' ? 'uiBack' : 'ui']();
         switch (a) {
           case 'play-campaign':
@@ -788,6 +834,7 @@ export class HUD {
           case 'settings': this.go('settings'); break;
           case 'settings-pause': this.go('settings'); break;
           case 'back': this.go('main'); break;
+          case 'credits': this.go('credits'); break;
           case 'back-pause': this.go('main'); break;
           case 'resume': this.panel = 'main'; g.resume(); break;
           case 'restart': this.panel = 'main'; g.start(g.mode); break;

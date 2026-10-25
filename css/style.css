@@ -255,6 +255,11 @@ body{
 .bar{height:5px;background:rgba(0,0,0,.5);overflow:hidden;width:100%}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--teal),var(--ice))}
 .lvlhint{font-size:10px;color:#5f7385;margin-top:6px;letter-spacing:.06em}
+.credits p{font-size:11px;color:#8fa6b8;line-height:1.5;margin:4px 0 8px;text-align:left;width:100%}
+.credits p b{color:#d7e3ec}
+.credits .lic{font-size:9px;color:#5f7385;max-height:96px;overflow:auto}
+.loadbox{width:100%;background:rgba(255,255,255,.04);padding:9px 11px;border:1px solid rgba(255,255,255,.10);margin-top:8px}
+.modes.loading .mode{opacity:.4;pointer-events:none}
 .lvlhint b{color:var(--amber)}
 
 .list{display:flex;flex-direction:column;gap:6px;width:100%}

@@ -1,8 +1,9 @@
 # Third-party assets
 
-Everything in Vault Nine is generated in code except the textures below. Each is
-CC0 1.0 (public domain dedication): no attribution required, free for commercial
-use. Credited anyway.
+Everything in Vault Nine is generated in code except what is listed below:
+CC0 1.0 textures, skies and motion capture (public domain dedication: no
+attribution required, credited anyway) and MIT-licensed soldier models
+(attribution required: see Soldiers).
 
 Downloaded 2026-10-20 from ambientCG (https://ambientcg.com), 1K-JPG packs. Only
 the Color, NormalGL and Roughness maps are used, downscaled to 512 px (256 px on
@@ -35,6 +36,44 @@ the horizon is filled with the haze colour.
 | Belfast Sunset (Pure Sky) | https://polyhaven.com/a/belfast_sunset_puresky | CC0 1.0 | dusk sky and lighting | dusk_2k.hdr (4.6 MB), dusk_1k.hdr (1.2 MB) |
 | Kloppenheim 02 (Pure Sky) | https://polyhaven.com/a/kloppenheim_02_puresky | CC0 1.0 | night sky and moonlight | night_2k.hdr (5.6 MB), night_1k.hdr (1.4 MB) |
 
+## Soldiers
+
+Built by `tools/charbuild.js` into `docs/assets/chars/` (one GLB per soldier,
+loaded at run time by `src/humans.js`, kept in Cache Storage after the first
+visit). Sources live in `raw/` (git-ignored). The built-in procedural soldier
+(`src/soldier.js`) remains the fallback when the files cannot load.
+
+**Microsoft Rocketbox avatars** -- MIT licence, Copyright (c) 2020 Microsoft.
+Downloaded 2026-10-25 from https://github.com/microsoft/Microsoft-Rocketbox
+(`Assets/Avatars/Professions/<name>/Export/<name>.fbx` and the `Textures/`
+TGAs). MIT requires the notice to travel with the files: it is in
+`docs/assets/chars/LICENSE-Rocketbox.txt` and on the in-game Credits screen.
+Changes made: every part's colour, normal and roughness packed into one atlas
+per soldier (1024 px per part desktop, 512 px phones, JPEG); the national
+flag on the sleeve painted over with an invented unit patch; UVs flipped to
+glTF; mesh indexed, vertex colour dropped, skin weights stored as bytes;
+skeleton re-posed from A-pose to T-pose for retargeting; exported in metres.
+
+| Asset | Source (Professions/...) | Licence | Used for | Desktop / phone file |
+|---|---|---|---|---|
+| Military_Male_01 | Military_Male_01 | MIT | rifleman, gunner | military_male_01.glb 2.59 MB / _lo 1.40 MB (not on phones) |
+| Military_Male_02 | Military_Male_02 | MIT | recon (cap, no vest) | 1.67 / 0.95 MB |
+| Military_Male_03 | Military_Male_03 | MIT | marksman, operator | 2.56 / 1.39 MB |
+| Military_Male_04 | Military_Male_04 | MIT | rifleman, gunner, operator | 2.41 / 1.34 MB |
+| Military_Male_05 | Military_Male_05 | MIT | recon | 1.58 / 0.92 MB |
+| Military_Male_06 | Military_Male_06 | MIT | recon | 1.56 / 0.90 MB |
+| Military_Female_01 | Military_Female_01 | MIT | rifleman | 2.41 / 1.28 MB |
+| Military_Female_02 | Military_Female_02 | MIT | marksman | 2.43 / 1.28 MB (not on phones) |
+
+Desktop loads all eight (17.2 MB); phones load six `_lo` files (6.8 MB).
+
+**Universal Animation Library [Standard] by Quaternius** -- CC0 1.0.
+Downloaded 2026-10-25 from https://quaternius.itch.io/universal-animation-library
+(free tier, `UAL1_Standard.glb`, 7.6 MB). Ten clips are retargeted onto every
+Rocketbox skeleton and baked into each GLB at 30 fps: Idle_Loop, Walk_Loop,
+Jog_Fwd_Loop, Sprint_Loop, Crouch_Idle_Loop, Crouch_Fwd_Loop, Hit_Chest,
+Hit_Head, Death01, and Death01 mirrored. The source file is not shipped.
+
 Everything else (buff brick, stone, corrugated metal, clay roof tiles, felt
-roofs, pavement slabs, gravel, road paint, signs, terrain, characters, weapons,
-sound) is still procedural.
+roofs, pavement slabs, gravel, road paint, signs, terrain, weapons, sound) is
+still procedural.

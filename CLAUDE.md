@@ -1,6 +1,6 @@
 # VAULT NINE — working notes
 
-Story-driven FPS, browser + Android. Three.js, procedural geometry, audio and most textures. Third-party content: nine CC0 photo textures (ambientCG, embedded by `tools/cc0pack.js` into `src/cc0data.js`) and three CC0 HDRI skies (Poly Haven, in `docs/assets/sky/`, loaded at run time), all listed in ASSETS.md; any new asset must be listed to the user before download and logged there. Formerly ROBOT STRIKE; local folder and localStorage keys (`robotstrike.*`) keep the old name on purpose — renaming the keys would wipe every player's saves.
+Story-driven FPS, browser + Android. Three.js, procedural geometry, audio and most textures. Third-party content: nine CC0 photo textures (ambientCG, embedded by `tools/cc0pack.js` into `src/cc0data.js`), three CC0 HDRI skies (Poly Haven, `docs/assets/sky/`), eight MIT Rocketbox soldiers with CC0 Quaternius motion (`docs/assets/chars/`), all loaded at run time and listed in ASSETS.md; any new asset must be listed to the user before download and logged there. Formerly ROBOT STRIKE; local folder and localStorage keys (`robotstrike.*`) keep the old name on purpose — renaming the keys would wipe every player's saves.
 
 Live: https://wajahatahmed82.github.io/vault-nine/  (repo `wajahatahmed82/vault-nine`; old `robot-strike` Pages URL redirects)
 
@@ -222,6 +222,28 @@ Night: 6 lamp point lights on desktop, shop-window light pools (`windowPools`), 
 - **Never junction `node_modules` into a git worktree.** `git worktree remove --force` followed the junction and emptied the real `node_modules` (restored with `npm ci`; esbuild comes from the npx cache, not the lockfile). Copy what a temp checkout needs, or delete the junction first.
 - **The Artifact preview cannot load `docs/assets`** (no `.hdr` type, no outside requests): it shows the painted sky. The live site has the photo skies.
 - **The photo skies are far brighter than the painted ones.** Day needed env 0.38, hemi x0.3, exposure 0.82 or pale yards blew out to white.
+
+## Real people (graphics prompt 2, Phase 2)
+
+Soldiers are Microsoft Rocketbox avatars (MIT) driven by Quaternius UAL motion capture (CC0), built offline into `docs/assets/chars/<look>{_lo}.glb` by `tools/charbuild.js` (runs in the dev page; needs `node tools/assetsrv.js` on 5177 and the sources in git-ignored `raw/`). One skinned mesh, one atlas material (one draw call), 80-bone biped, ten baked clips. Desktop loads all 8 (1024 px parts, 17.2 MB), phones 6 `_lo` (512 px, 6.8 MB). `assets.fetchAsset` keeps them in Cache Storage -- bump `CACHE` in assets.js when any asset file changes.
+
+`src/humans.js`: `Human` (one per enemy when `humansReady()`; `soldier.js` stays the fallback) and `FPArms` (the player's arms, cut from a soldier's arm triangles, hung from the camera; `weapons.useArms`). Clips own legs/hips/spine; then hip yaw toward travel, upper-spine twist back + aim pitch, foot plant (<16 m), rifle placed from the right shoulder bone (pocket offsets), two-bone arm IK onto the carried gun's grip/guard (`viewmodel.buildCarriedGun`, 85% of the viewmodel, vertex colours), hand frames + finger curls, forearm roll. Hit boxes are boxes attached to bones (`hitboxes()`, [0] = head). Deaths: two clips, body turned square to the shot first, rifle drops. Menu waits for the models (`hud.setLoading`); Credits screen carries the MIT notice.
+
+    const v = await import('/tools/humanview.js'); await v.capture(__rs, 'after')   // idle/running/firing/dying at 2/10/40 m
+    const f = await import('/tools/humanfit.js'); f.run(__rs)                      // palm-to-grip error per loadout
+    const b = await import('/tools/crowdbench.js'); await b.run(__rs, { n: 24 })   // people vs built-in, paired
+    const r = await import('/tools/fprig.js'); await r.run(__rs, 'rifle')          // first-person rig from the side
+    __rs.useHumans(false)   // spawn built-in soldiers (before shots, benchmarks)
+
+- **`Skeleton.pose()` drops a root bone's parent transform.** It takes the bind matrix as the local matrix; the glTF armature's -90 degree X turn vanished and every retargeted clip lay flat. `restPose()` in charbuild uses `skin.matrixWorld * bindMatrix^-1 * boneInverse^-1`.
+- **FBXLoader makes the skeleton root's parent a Bone too.** "Root = parent is not a Bone" found nothing and the bake loop never ran (all-zero tracks). Use "parent not in the skeleton".
+- **Rocketbox rests in an A-pose, UAL in a T-pose.** Limbs are swung to the source's directions before deltas are measured.
+- **FBX UVs are v-up; the textures went in flipY=false.** Legs sampled the hands and boots of the atlas (skin-coloured thighs). UVs are flipped in `packGeometry`.
+- **GLTFExporter re-encodes textures through `canvas.toBlob`** (JPEG 0.92); charbuild patches it to 0.85 for the export.
+- **Never read `getWorldPosition/Quaternion` in the solver.** Each call re-multiplies every ancestor; it made a person cost 260 us. Read `matrixWorld` and refresh with `own(bone)`; a bone's matrix must be refreshed *before* it is read in a frame or last frame's twist compounds (the chest spun 100 degrees).
+- **Thighs hang off `Bip01_Spine` in this rig.** Twist only Spine1/Spine2 or the legs turn with the chest.
+- **The viewmodel's handguard is out of a real arm's reach.** Carried guns are 85% size with the support hand on the handguard's rear; FPArms are 1.15x, bladed 0.35 rad, and slide the support hand back when still short.
+- **Bone matrices are uploaded every frame for people** even when the distance LOD holds the pose (every 2nd/3rd/6th frame past 16/26/50 m): they are world space, so a skipped upload leaves the body behind a moving root.
 
 ## Mobile and Android
 

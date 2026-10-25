@@ -1,10 +1,16 @@
 import * as THREE from 'three';
 import { CFG } from './config.js';
 import { createSoldier, poseSoldier, KIT, BONE } from './soldier.js';
+import { Human, humansReady } from './humans.js';
 
 // Hostile soldiers: five loadouts, one shared code path.
 //
-// The body is a skinned mesh over a 19-bone skeleton (see soldier.js), so
+// Once the soldier models have loaded (humans.js) each soldier is a real
+// rigged person: motion-captured legs and body, procedural rifle carry, aim,
+// recoil and reload on top, hit volumes on the bones. Until then -- or if the
+// files cannot be fetched -- the built-in procedural soldier below stands in.
+//
+// The built-in body is a skinned mesh over a 19-bone skeleton (see soldier.js), so
 // elbows, knees and shoulders deform instead of pivoting as separate parts.
 // Geometry and material are shared per loadout; only the skeleton is per
 // instance. Animation is one blended pose function rather than a clip switch,
@@ -27,11 +33,30 @@ export { KIT };
 const MODEL_SCALE = 1.14;
 
 const HITBOX = new THREE.MeshBasicMaterial({ visible: false });
+const PART_MUL = { head: () => CFG.weapons.rifle.headMul, body: () => 1.0, arms: () => 0.75, legs: () => 0.65 };
 // Rounds per magazine by type; an empty magazine means a reload, called out.
 const MAG = { assault: 24, heavy: 8, sniper: 5, elite: 30 };
 // Weapon class each type fires, for the sound of it.
 export const GUN_CLASS = { assault: 'rifle', heavy: 'shotgun', sniper: 'sniper', elite: 'smg', scout: 'smg' };
 let nextId = 1;
+
+// Muzzle glow: hot centre, four short spikes, soft falloff. Drawn once.
+let glowTex = null;
+function flashGlow() {
+  if (glowTex) return glowTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d');
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.25, 'rgba(255,220,150,0.8)'); g.addColorStop(1, 'rgba(255,140,40,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  x.globalCompositeOperation = 'lighter';
+  x.fillStyle = 'rgba(255,200,120,0.5)';
+  for (let i = 0; i < 4; i++) { x.save(); x.translate(32, 32); x.rotate(i * Math.PI / 2 + 0.4); x.fillRect(-1.5, 0, 3, 30); x.restore(); }
+  glowTex = new THREE.CanvasTexture(c);
+  glowTex.colorSpace = THREE.SRGBColorSpace;
+  return glowTex;
+}
 
 export class Enemy {
   constructor(type, x, z, tier) {
@@ -99,14 +124,27 @@ export class Enemy {
     this.body.scale.setScalar(MODEL_SCALE);   // build variation applied below
     this.root.add(this.body);
 
-    const built = createSoldier(type);
-    this.body.scale.setScalar(MODEL_SCALE * built.build);
-    this.mesh = built.mesh;
-    this.bones = built.bones;
-    this.mount = built.mount;
-    this.skeleton = built.skeleton;
-    this.arms = built.arms;
-    this.body.add(this.mesh);
+    let gunLen;
+    if (humansReady()) {
+      // a real person, scaled to the same height the procedural one stood
+      const h = this.human = new Human(type);
+      this.body.scale.setScalar(MODEL_SCALE * h.build * (1.74 / h.crown));
+      this.mesh = h.mesh;
+      this.mount = h.mount;
+      this.skeleton = h.skeleton;
+      this.body.add(h.root);
+      gunLen = 0;
+    } else {
+      const built = createSoldier(type);
+      this.body.scale.setScalar(MODEL_SCALE * built.build);
+      this.mesh = built.mesh;
+      this.bones = built.bones;
+      this.mount = built.mount;
+      this.skeleton = built.skeleton;
+      this.arms = built.arms;
+      this.body.add(this.mesh);
+      gunLen = built.gunLen;
+    }
 
     // Animation weights, all live at once rather than one exclusive state.
     this.aimW = 0;
@@ -125,15 +163,17 @@ export class Enemy {
 
     // Muzzle rides the weapon, so it points wherever the hands do.
     this.muzzle = new THREE.Object3D();
-    this.muzzle.position.set(0, 0.012, built.gunLen * 1.05);
+    if (this.human) this.muzzle.position.copy(this.human.muzzlePos);
+    else this.muzzle.position.set(0, 0.012, gunLen * 1.05);
     this.mount.add(this.muzzle);
 
-    this.flash = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.17, 0.17),
-      new THREE.MeshBasicMaterial({
-        color: 0xffc06a, transparent: true, opacity: 0,
-        blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
-      }));
+    // A soft glow that always faces the camera; a flat card read as an orange
+    // square from the side. Material per soldier (opacity fades per shot).
+    this.flash = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: flashGlow(), color: 0xffc06a, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+    }));
+    this.flash.scale.setScalar(this.human ? 0.42 : 0.3);
     this.flash.position.copy(this.muzzle.position);
     this.flash.visible = false;
     this.mount.add(this.flash);
@@ -143,6 +183,14 @@ export class Enemy {
   }
 
   _hitboxes() {
+    if (this.human) {
+      // boxes on the bones: they crouch, lean and fall with the body
+      for (const { mesh, part } of this.human.hitboxes(HITBOX)) {
+        mesh.userData = { robot: this, part, mul: PART_MUL[part]() };
+        this.hitboxes.push(mesh);
+      }
+      return;
+    }
     // Coarse boxes rather than the render meshes: cheaper to trace, and sized
     // for fairness rather than anatomy.
     const add = (w, h, d, y, part, mul) => {
@@ -165,6 +213,7 @@ export class Enemy {
     this.hitT = 1;
     this.suppressT = Math.min(2.5, this.suppressT + 1.1);
     this.hitSide = Math.random() < 0.5 ? -1 : 1;
+    if (this.human) this.human.hit(part, this.hitSide);
     // Being shot always reveals the player, even from behind cover.
     this.alerted = true;
     this.awareness = 1;
@@ -177,6 +226,11 @@ export class Enemy {
       this.state = STATE.DEAD;
       this.deathT = 0;
       this.hitboxes.forEach((h) => { h.userData.robot = null; });
+      if (this.human) {
+        const pl = this._ctx && this._ctx.player, rp = this.root.position;
+        const to = pl ? new THREE.Vector3(pl.x - rp.x, 0, pl.z - rp.z).normalize() : null;
+        this.human.die(part === 'head', to, rp.y);
+      }
       return { killed: true, headshot: part === 'head' };
     }
     return { killed: false };
@@ -251,7 +305,10 @@ export class Enemy {
     if (this.alerted && !canSee && this.nadeCd <= 0 && this.sawAt > 2 && this.sawAt < 10 &&
         dist > 7 && dist < 28 && (this.type === 'elite' || this.type === 'assault') && ctx.throwNade) {
       this.nadeCd = 22 + Math.random() * 16;
-      if (ctx.throwNade(this, this.lastSeen) && ctx.callout) ctx.callout(this, 'flash');
+      if (ctx.throwNade(this, this.lastSeen)) {
+        if (this.human) this.human.throw();
+        if (ctx.callout) ctx.callout(this, 'flash');
+      }
     }
     this._act(dt, ctx, dist, canSee, dx, dz);
     this._unstick(dt, ctx, dist);
@@ -581,7 +638,7 @@ export class Enemy {
     this.fireT = 1;
     this.flash.visible = true;
     this.flash.material.opacity = 0.9;
-    this.flash.rotation.z = Math.random() * 3;
+    this.flash.material.rotation = Math.random() * 6.3;
     ctx.onAttack(this.spec.damage * this.diff.damage, origin, dir, this);
   }
 
@@ -611,15 +668,20 @@ export class Enemy {
     // for it every frame is most of the simulation cost at 40 enemies. Far
     // ones pose every third frame and stop casting shadows, which is the
     // single biggest render saving and is not visible in play.
-    const far = this.dist > 26;
+    // The rigged people cost more to pose, so they step down sooner: every
+    // other frame past 16 m, every third past 26 m, every sixth past 50 m.
+    const d = this.dist;
+    const every = this.human ? (d > 50 ? 6 : d > 26 ? 3 : d > 16 ? 2 : 1) : (d > 26 ? 3 : 1);
+    const far = every > 1;
     if (far) {
-      this.poseSkip = (this.poseSkip + 1) % 3;
+      this.poseSkip = (this.poseSkip + 1) % every;
       if (this.poseSkip !== 0) {
         this._flashDecay(dt);
         return;
       }
-      dt *= 3;
+      dt *= every;
     }
+    if (this.human) return this._animateHuman(dt);
     if (this.mesh.castShadow !== (this.dist < 24)) this.mesh.castShadow = this.dist < 24;
 
     // Weights ease toward their targets so the soldier never snaps between
@@ -649,6 +711,29 @@ export class Enemy {
     this._flashDecay(dt);
   }
 
+  _animateHuman(dt) {
+    const h = this.human, pos = this.root.position;
+    h.setShadow(this.dist < 24);
+    if (this._px === undefined) { this._px = pos.x; this._pz = pos.z; }
+    const vx = (pos.x - this._px) / dt, vz = (pos.z - this._pz) / dt;
+    this._px = pos.x; this._pz = pos.z;
+    const wantAim = (this.state === STATE.ATTACK || this.state === STATE.CHASE || this.state === STATE.COVER ||
+      this.state === STATE.ALERT || this.state === STATE.FLANK) ? 1 : 0;
+    this.aimW += (wantAim - this.aimW) * Math.min(1, dt * 5);
+    this.fireT = Math.max(0, this.fireT - dt * 6);
+    // in cover and between bursts: down behind it; up again before the next
+    const crouch = this.state === STATE.COVER && !this.walking && this.burstLeft === 0 && (this.attackCd > 0.6 || this.reloadT > 0);
+    const ctx = this._ctx, pl = ctx && ctx.player;
+    const pitch = pl ? Math.atan2((pl.y || 0) + 1.35 - (pos.y + 1.45 * this.spec.scale), Math.max(1, this.dist)) : 0;
+    h.update({
+      dt, vx, vz, aim: this.aimW, fire: this.fireT, reload: this.reloadT > 0, crouch,
+      pitch: THREE.MathUtils.clamp(pitch, -0.7, 0.7), dist: this.dist,
+      target: pl ? (this._aimAt || (this._aimAt = new THREE.Vector3())).set(pl.x, (pl.y || 0) + 1.25, pl.z) : null,
+      ground: ctx && ctx.groundAt,
+    });
+    this._flashDecay(dt);
+  }
+
   _flashDecay(dt) {
     if (this.flash.visible) {
       this.flash.material.opacity -= dt * 14;
@@ -661,6 +746,16 @@ export class Enemy {
 
   _death(dt) {
     this.deathT += dt;
+    if (this.human) {
+      this.human.update({ dt });
+      this._flashDecay(dt);
+      // the fall takes about 1.3 s; then sink from wherever they lie
+      if (this.deathT > 2.3) {
+        if (this.sinkY === undefined) this.sinkY = this.root.position.y;
+        this.root.position.y = this.sinkY - (this.deathT - 2.3) * 1.1;
+      }
+      return;
+    }
     const t = Math.min(1, this.deathT / 0.75);
     const e = t * t * (3 - 2 * t);
     this.skeleton.needsPose = true;
@@ -683,7 +778,7 @@ export class Enemy {
     }
   }
 
-  get removable() { return this.dead && this.deathT > 2.7; }
+  get removable() { return this.dead && this.deathT > (this.human ? 3.2 : 2.7); }
 }
 
 // Kept as `Robot` too so existing imports keep working.

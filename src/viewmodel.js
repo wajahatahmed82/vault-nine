@@ -37,7 +37,7 @@ export const SIGHT_Y = 0.088;
 
 export function buildWeaponModel(shape, mats) {
   const k = shape.bulk;
-  const metal = [], poly = [], dark = [], glove = [], sleeve = [];
+  const metal = [], poly = [], dark = [], glove = [], sleeve = [], cuff = [];
 
   // ---- receiver ----
   metal.push(at(B(0.076 * k, 0.074 * k, 0.42 * k), [0, 0.010, -0.03]));
@@ -127,8 +127,8 @@ export function buildWeaponModel(shape, mats) {
 
   sleeve.push(limb([0.020, -0.150, 0.150], [0.135, -0.330, 0.380], 0.072, 0.072));
   sleeve.push(limb([-0.010, -0.095, guardZ + 0.03], [-0.140, -0.310, -0.060], 0.072, 0.072));
-  dark.push(at(B(0.080, 0.080, 0.028), [0.048, -0.196, 0.212], [0.6, 0.5, 0]));
-  dark.push(at(B(0.080, 0.080, 0.028), [-0.052, -0.150, guardZ + 0.14], [0.6, -0.5, 0]));
+  cuff.push(at(B(0.080, 0.080, 0.028), [0.048, -0.196, 0.212], [0.6, 0.5, 0]));
+  cuff.push(at(B(0.080, 0.080, 0.028), [-0.052, -0.150, guardZ + 0.14], [0.6, -0.5, 0]));
 
   // ---- assemble ----
   const gun = new THREE.Group();
@@ -140,11 +140,14 @@ export function buildWeaponModel(shape, mats) {
     gun.add(m);
     return m;
   };
-  add(metal, mats.gunMetal);
-  add(poly, mats.gunPoly);
-  add(dark, darkMat);
-  add(glove, mats.glove);
-  add(sleeve, mats.camo);
+  const parts = {
+    metal: add(metal, mats.gunMetal),
+    poly: add(poly, mats.gunPoly),
+    dark: add(dark, darkMat),
+    glove: add(glove, mats.glove),
+    sleeve: add(sleeve, mats.camo),
+    cuff: add(cuff, darkMat),
+  };
 
   // ---- magazine as a separate object so it can drop during reload ----
   let magGeos;
@@ -181,5 +184,59 @@ export function buildWeaponModel(shape, mats) {
 
   gun.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
 
-  return { gun, mag, reticle, muzzle, port, magHome: mag.position.clone() };
+  // Hand points, in gun space: palm centres on the pistol grip and the
+  // handguard. The box hands above sit on them; real arms are solved onto them.
+  const hands = {
+    grip: new THREE.Vector3(0.004, -0.112, gripZ + 0.012),
+    // real arms hold the rear of the handguard; the box hand sits further out
+    guard: new THREE.Vector3(-0.004, -0.052, Math.max(guardZ, -0.27)),
+    meshes: [parts.glove, parts.sleeve, parts.cuff].filter(Boolean),
+  };
+
+  return { gun, mag, reticle, muzzle, port, magHome: mag.position.clone(), parts, hands };
+}
+
+// The same weapon for a soldier to carry: one geometry with the three gun
+// colours baked into vertex colours (one draw call), no hands, turned so the
+// muzzle points down +Z like the soldier. Cached per shape.
+const CARRIED = new Map();
+const CARRY_COL = { metal: [0.40, 0.41, 0.42], poly: [0.25, 0.255, 0.26], dark: [0.16, 0.165, 0.17] };
+export function buildCarriedGun(shape) {
+  const key = JSON.stringify(shape);
+  if (CARRIED.has(key)) return CARRIED.get(key);
+  const plain = new THREE.MeshStandardMaterial();
+  const m = buildWeaponModel(shape, { gunMetal: plain, gunPoly: plain, glove: plain, camo: plain });
+  const geos = [];
+  const take = (mesh, rgb) => {
+    let g = mesh.geometry.clone();
+    if (g.index) g = g.toNonIndexed();
+    const n = g.attributes.position.count, col = new Float32Array(n * 3);
+    const c = new THREE.Color().setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
+    for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    mesh.updateMatrix();
+    g.applyMatrix4(mesh.matrix);
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'color'].includes(k)) g.deleteAttribute(k);
+    geos.push(g);
+  };
+  for (const k of ['metal', 'poly', 'dark']) if (m.parts[k]) take(m.parts[k], CARRY_COL[k]);
+  take(m.mag, CARRY_COL.poly);
+  const geo = mergeGeometries(geos, false);
+  // The viewmodel is built long for the screen; a carried one at 85% is the
+  // length of a real carbine and keeps the handguard inside arm's reach.
+  const K = 0.85;
+  const turn = new THREE.Matrix4().makeRotationY(Math.PI).scale(new THREE.Vector3(K, K, K));
+  geo.applyMatrix4(turn);
+  geo.computeBoundingSphere();
+  const flip = (v) => v.clone().applyMatrix4(turn);
+  const out = {
+    geometry: geo,
+    // support hand on the rear of the handguard, not out at the box hand
+    grip: flip(m.hands.grip), guard: flip(new THREE.Vector3(-0.004, -0.052, -0.25)),
+    magwell: flip(new THREE.Vector3(0, -0.10, -0.03)),
+    muzzle: flip(m.muzzle.position),
+    stockZ: (shape.stock ? -0.31 : -0.23) * K,
+  };
+  CARRIED.set(key, out);
+  return out;
 }

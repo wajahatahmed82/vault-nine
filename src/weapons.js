@@ -169,6 +169,14 @@ export class WeaponSystem {
     this.recoilGroup.add(this.flashLight);
   }
 
+  // Real arms (humans.js FPArms) replace the box hands once the soldier
+  // models have loaded.
+  useArms(arms) {
+    this.arms = arms;
+    this.camera.add(arms.root);
+    for (const id of this.ids) for (const h of this.models[id].hands.meshes) h.visible = false;
+  }
+
   // ---------- accessors ----------
   get spec() { return CFG.weapons[this.current]; }
   get model() { return this.models[this.current]; }
@@ -671,6 +679,16 @@ export class WeaponSystem {
     this.model.gun.visible = !(this.scoped && this.ads > 0.75);
 
     this._reloadPose();
+    if (this.arms) {
+      // support hand to the magazine for the middle of a reload
+      let w = 0;
+      if (this.reloading > 0) {
+        const t = 1 - this.reloading / this.reloadTotal;
+        w = THREE.MathUtils.smoothstep(t, 0.06, 0.2) * (1 - THREE.MathUtils.smoothstep(t, 0.8, 0.92));
+      }
+      const m = this.model;
+      this.arms.update(this.camera, m.gun, m.hands, m.mag, w, this.root.visible);
+    }
 
     if (this.flash.visible) {
       this.flashMat.opacity -= dt * 22;

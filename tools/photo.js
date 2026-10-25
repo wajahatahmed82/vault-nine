@@ -22,6 +22,7 @@ export function on(rs) {
     e.style.visibility = 'hidden';
   }
   g.weapons.root.visible = false;
+  if (g.weapons.arms) g.weapons.arms.root.visible = false;
 }
 
 export function off(rs) {
@@ -30,6 +31,7 @@ export function off(rs) {
   g.update = saved.update;
   for (const [e, v] of saved.vis) e.style.visibility = v;
   g.weapons.root.visible = true;
+  if (g.weapons.arms) g.weapons.arms.root.visible = true;
   saved = null;
 }
 

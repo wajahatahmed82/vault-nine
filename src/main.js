@@ -9,6 +9,8 @@ import { createAtmosphere } from './sky.js';
 import { createPost } from './post.js';
 import { ScreenFX } from './screenfx.js';
 import { createLife } from './townlife.js';
+import { loadHumans, humansReady, humansProgress, useHumans, FPArms } from './humans.js';
+import { VIEW_LAYER } from './weapons.js';
 
 const canvas = document.getElementById('view');
 
@@ -241,12 +243,28 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
+// Soldier models: fetched (or read from the cache) while the menu is up; the
+// mission buttons wait for them. If they cannot load, the built-in soldiers
+// stand in and the menu opens anyway.
+let humansDone = false;
+const humans = loadHumans().then(() => {
+  humansDone = true;
+  if (humansReady()) game.weapons.useArms(new FPArms(VIEW_LAYER));
+});
+(function watchLoad() {
+  hud.setLoading(humansProgress(), humansDone);
+  if (!humansDone) setTimeout(watchLoad, 150);
+})();
+
 window.__rs = {
   game, hud, input, renderer, prog, settings, step, THREE, STATE, MODE,
   // test hook: place a soldier without importing enemies.js, so the tools also
   // run against the single-file build
   spawnSoldier: (type, x, z, yaw) => game.campaign._spawn(type, x, z, { yaw: yaw || 0 }),
   audioLog: () => audio.spatialLog,
+  humans,                          // resolves once the soldier models are in
+  get humansReady() { return humansReady(); },
+  useHumans,
   get renderScale() { return renderScale; },
   get shadowsOn() { return shadowsOn; },
   setQuality(q) { settings.set('quality', q); applyQuality(); },
