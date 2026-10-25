@@ -11,8 +11,11 @@ import { rayBox } from './collide.js';
 import { buildNav } from './nav.js';
 import { Gear } from './gear.js';
 import { Vehicle } from './vehicle.js';
+import { placeSnapped, NEAR_HALF, FAR_HALF } from './shadows.js';
 import * as audio from './audio.js';
 import * as settings from './settings.js';
+
+const TOUCH = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
 export const STATE = { MENU: 'menu', PLAY: 'play', PAUSED: 'paused', OVER: 'over' };
 export const MODE = { CAMPAIGN: 'campaign', SURVIVAL: 'survival', TIME: 'timeattack' };
@@ -36,6 +39,9 @@ export class Game {
     this.blockers = built.blockers;
     this.colliders = built.colliders;
     this.sun = built.sun;
+    this.sunFar = built.sunFar;
+    this._farAt = new THREE.Vector3(1e9, 0, 0);
+    this._farT = 0;
     this.spawnPoint = built.spawn;
     this.scene.add(this.camera);
 
@@ -61,6 +67,12 @@ export class Game {
     this.fx = new FX(this.scene, this.camera);
     this.gear = new Gear(this);
     this.vehicle = new Vehicle(this);
+    // one shared light that jumps to the latest enemy muzzle flash nearby
+    this.enemyFlash = null;
+    if (!TOUCH) {
+      this.enemyFlash = new THREE.PointLight(0xffc27a, 0, 16, 2);
+      this.scene.add(this.enemyFlash);
+    }
     this.playBounds = built.PLAY;
     this.decals = new Decals(this.scene);
     // What each world material is made of, for impact marks, dust and sound.
@@ -680,6 +692,10 @@ export class Game {
       this.camera.getWorldPosition(camPos);
       // you hear where it came from, and it shows on the map and compass
       audio.spatial.shot(origin.x, origin.y, origin.z, GUN_CLASS[robot && robot.type] || 'rifle');
+      if (this.enemyFlash && origin.distanceToSquared(camPos) < 2500) {
+        this.enemyFlash.position.copy(origin);
+        this.enemyFlash.intensity = 26;
+      }
       this.fireMarks.push({ x: origin.x, z: origin.z, t: this.elapsed });
       if (this.fireMarks.length > 24) this.fireMarks.shift();
       const from = audio.toListener(origin.x, origin.y, origin.z);
@@ -870,6 +886,10 @@ export class Game {
       audio.setListener(cam.position, f, u);
     }
     this._stepsThisFrame = 0;
+    if (this.enemyFlash && this.enemyFlash.intensity > 0) {
+      this.enemyFlash.intensity *= Math.exp(-dt * 22);
+      if (this.enemyFlash.intensity < 0.05) this.enemyFlash.intensity = 0;
+    }
     if (this.calloutT > 0) this.calloutT -= dt;
     for (let i = this.pendingCallouts.length - 1; i >= 0; i--) {
       const c = this.pendingCallouts[i];
@@ -905,11 +925,20 @@ export class Game {
 
     // keep the shadow frustum on the player
     const p = this.player.state;
-    const so = this.sunOffset;
-    const gy = p.y;
-    if (so) this.sun.position.set(p.x + so.x, gy + so.y, p.z + so.z);
-    else this.sun.position.set(p.x - 34, 30, p.z + 18);
-    this.sun.target.position.set(p.x, gy, p.z);
+    // both cascades centred on the player, snapped to whole texels
+    const so = this.sunOffset || this._sunDefault || (this._sunDefault = new THREE.Vector3(-34, 30, 18));
+    const centre = this._sc || (this._sc = new THREE.Vector3());
+    centre.set(p.x, p.y, p.z);
+    placeSnapped(this.sun, centre, so, 60, NEAR_HALF);
+    if (this.sunFar && this.sunFar.castShadow) {
+      // the wide map is refreshed when the player has moved or every half second
+      this._farT += dt;
+      if (this._farT > 0.5 || this._farAt.distanceToSquared(centre) > 36) {
+        this._farT = 0; this._farAt.copy(centre);
+        placeSnapped(this.sunFar, centre, so, 320, FAR_HALF);
+        this.sunFar.shadow.needsUpdate = true;
+      }
+    }
     if (this.scene.fog && this.baseFog) this.scene.fog.density = this.baseFog * (this.fogMul || 1);
     if (this.atmos) this.atmos.update(dt, this.camera.position);
     if (this.life) this.life.update(dt);
@@ -1142,6 +1171,11 @@ export class Game {
   // can never clip through a wall.
   render() {
     if (this.town) this.town.update(this.camera.position);
+    if (this.post && this.atmos) {
+      const A = this.atmos.state, T = A.T;
+      const rain = A.weather === 'rain' ? 0.25 : 1;
+      this.post.setRays(this.camera, A.sunDir || this.sunOffset, this.sun.color, (T.rays || 0) * rain);
+    }
     if (this.post && this.post.mode !== 'off') this.post.render(1 / 60);
     else this.renderScene(null);
   }

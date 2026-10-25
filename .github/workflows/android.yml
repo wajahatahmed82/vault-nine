@@ -49,6 +49,9 @@ jobs:
         run: |
           mkdir -p www
           cp docs/index.html www/index.html
+          # the phone build only ships the 1k skies the game asks for on phones
+          mkdir -p www/assets/sky
+          cp docs/assets/sky/*_1k.hdr www/assets/sky/
           npx cap sync android
 
       - name: Build test APK

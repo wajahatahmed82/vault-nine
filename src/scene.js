@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { addFarCascade } from './shadows.js';
 import { CFG, PAL } from './config.js';
 import { buildMaterials } from './materials.js';
 import { buildFacility } from './facility.js';
@@ -68,6 +69,8 @@ export function buildScene(renderer) {
   sun.shadow.bias = -0.0012;
   sun.shadow.normalBias = 0.03;
   scene.add(sun, sun.target);
+  // a second, wide shadow cascade (shadows.js)
+  const sunFar = addFarCascade(scene, sun);
 
   // ---------------- ground ----------------
   // The station shelf is asphalt, tiled in metres. Around it the terrain mesh
@@ -115,7 +118,7 @@ export function buildScene(renderer) {
   return {
     terrain, town, grid, terrainH, PLAY,
     surfaceH: town.surfaceH,
-    scene, sun, blockers, mats, spawn,
+    scene, sun, sunFar, blockers, mats, spawn,
     colliders,
     voids: f.voids,
     areas: f.areas,

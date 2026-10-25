@@ -299,6 +299,12 @@ body{
 }
 
 
+/* run-time asset loading: a thin bar across the top */
+#assetbar{position:fixed;left:0;right:0;top:0;height:3px;z-index:50;pointer-events:none;opacity:0;transition:opacity .3s}
+#assetbar.on{opacity:1}
+#assetbar i{display:block;height:100%;width:0;background:var(--teal);transition:width .15s}
+#assetbar span{position:absolute;right:10px;top:5px;font-size:9px;letter-spacing:.14em;color:#8fa6b8}
+
 /* ---- map, compass, comms ---- */
 #minimap{position:absolute;left:calc(env(safe-area-inset-left) + 18px);top:calc(env(safe-area-inset-top) + 12px);
   width:150px;height:150px;pointer-events:none}

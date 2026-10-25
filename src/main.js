@@ -40,7 +40,7 @@ const hud = new HUD(game, input, prog);
 // Atmosphere before the shader warm-up below, so its lights are part of every
 // compiled program. Phones get no real point lights: the per-pixel light loop
 // is the most expensive thing a mobile GPU could be asked to do here.
-game.atmos = createAtmosphere(game, renderer, { pointLights: TOUCH_ONLY ? 0 : 4, time: settings.get('timeOfDay') });
+game.atmos = createAtmosphere(game, renderer, { pointLights: TOUCH_ONLY ? 0 : 6, time: settings.get('timeOfDay') });
 game.atmos.setWeather(settings.get('weather'));
 game.life = createLife(game, { lowEffects: TOUCH_ONLY, fireLight: !TOUCH_ONLY });
 game.life.setRain(settings.get('weather') === 'rain');
@@ -70,6 +70,12 @@ function setShadows(on, size) {
   const changed = shadowsOn !== on;
   shadowsOn = on;
   renderer.shadowMap.enabled = on;
+  // the wide second cascade on desktop at medium shadows and up
+  const far = on && !TOUCH_ONLY && (size || 0) >= 1024;
+  if (game.sunFar && game.sunFar.castShadow !== far) {
+    game.sunFar.castShadow = far;
+    game.sunFar.shadow.needsUpdate = true;
+  }
   if (size && game.sun.shadow.mapSize.width !== size) {
     game.sun.shadow.mapSize.set(size, size);
     game.sun.shadow.map?.dispose();
@@ -132,6 +138,7 @@ function applyQuality() {
     game.post.setMode(pf);
     // AO on HIGH / ULTRA (and desktop auto, which drops it first when slow)
     game.post.ao = pf !== 'off' && (q === 'auto' ? !TOUCH_ONLY : !!settings.get('ao'));
+    game.post.raysOn = pf === 'full' && !TOUCH_ONLY;
   }
   applySize();
 }
@@ -155,7 +162,9 @@ function autoTune(dt, frameMs) {
   if (tuneT < 0.9) return;
   tuneT = 0;
   if (frameAvg > 17.5) {
-    if (game.post && game.post.ao) game.post.ao = false;
+    // give up, in order: the wide shadow cascade, AO, then shadows
+    if (game.sunFar && game.sunFar.castShadow) game.sunFar.castShadow = false;
+    else if (game.post && game.post.ao) game.post.ao = false;
     else if (shadowsOn) setShadows(false, 512);
     else if (renderScale > 0.6) { renderScale = Math.max(0.6, renderScale - 0.12); applySize(); }
   } else if (frameAvg < 12.5) {

@@ -58,6 +58,14 @@ export class Vehicle {
     this.mesh = m.group; this.wheels = m.wheels;
     this.mesh.visible = false;
     game.scene.add(this.mesh);
+    // headlights that really light the road (desktop): one spot between the lamps
+    this.beam = null;
+    if (!(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)) {
+      this.beam = new THREE.SpotLight(0xfff0d0, 0, 55, 0.62, 0.55, 1.4);
+      this.beam.position.set(0, 1.0, -LEN / 2 - 0.1);
+      this.beam.target.position.set(0, -0.6, -LEN / 2 - 14);
+      this.mesh.add(this.beam, this.beam.target);
+    }
     this.active = false;     // present in this run
     this.driving = false;
     this.x = 0; this.z = 0; this.y = 0; this.heading = 0; this.speed = 0;
@@ -83,6 +91,7 @@ export class Vehicle {
     if (this.driving) this.exit();
     this.active = false;
     this.mesh.visible = false;
+    if (this.beam) this.beam.intensity = 0;
   }
 
   // the F prompt, when the player is next to it or in it
@@ -190,6 +199,10 @@ export class Vehicle {
       }
     }
     this._pose(dt);
+    if (this.beam) {
+      const n = this.game.atmos ? this.game.atmos.night : 0;
+      this.beam.intensity = this.active ? 90 * Math.max(n, this.driving ? 0.15 : 0) : 0;
+    }
     if (this.driving) audio.engine.set(Math.abs(this.speed) / MAX_FWD, Math.abs(inp.throttle || 0));
   }
 

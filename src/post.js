@@ -131,6 +131,41 @@ const AOBlendShader = {
     }`,
 };
 
+// Light shafts: the sky as seen in the world pass (depth at the far plane) is
+// written to a small mask, then smeared towards the sun's place on screen and
+// added in HDR before tone mapping -- light streaming between buildings and
+// through trees at dusk.
+const SkyMaskShader = {
+  uniforms: { tDepth: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4( position.xy, 0.0, 1.0 ); }',
+  fragmentShader: `uniform sampler2D tDepth; varying vec2 vUv;
+    void main() { float d = texture2D( tDepth, vUv ).x; gl_FragColor = vec4( vec3( step( 0.99999, d ) ), 1.0 ); }`,
+};
+const RaysShader = {
+  uniforms: {
+    tDiffuse: { value: null }, tMask: { value: null }, uSun: { value: new THREE.Vector2(0.5, 0.5) },
+    uColor: { value: new THREE.Vector3(1, 0.8, 0.6) }, uStrength: { value: 0 }, uAspect: { value: 1 },
+  },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform sampler2D tMask; uniform vec2 uSun; uniform vec3 uColor; uniform float uStrength; uniform float uAspect;
+    varying vec2 vUv;
+    void main() {
+      vec4 base = texture2D( tDiffuse, vUv );
+      vec2 delta = ( vUv - uSun ) * ( 0.9 / 40.0 );
+      vec2 uv = vUv;
+      float illum = 1.0, acc = 0.0;
+      for ( int i = 0; i < 40; i ++ ) {
+        uv -= delta;
+        acc += texture2D( tMask, clamp( uv, 0.0, 1.0 ) ).r * illum;
+        illum *= 0.965;
+      }
+      acc /= 40.0;
+      vec2 d = ( vUv - uSun ) * vec2( uAspect, 1.0 );
+      float fall = exp( - dot( d, d ) * 1.6 );
+      gl_FragColor = vec4( base.rgb + uColor * acc * fall * uStrength, base.a );
+    }`,
+};
+
 // `bloom` is the threshold: by day sunlit pale paving goes past 1.0 and
 // would glow, so only lights (and the sun) are allowed over it.
 export const GRADES = {
@@ -150,12 +185,15 @@ export function createPost(renderer, game) {
   const size = new THREE.Vector2(800, 600);
   const bloom = new UnrealBloomPass(new THREE.Vector2(400, 300), 0.6, 0.35, 1.05);
   const output = new OutputPass();
+  const rays = new ShaderPass(RaysShader);
+  rays.enabled = false;
   const grade = new ShaderPass(GradeShader);
   const effects = new ShaderPass(EffectsShader);
   effects.enabled = false;
   const fxaa = new ShaderPass(FXAAShader);
   composer.addPass(gamePass);
   composer.addPass(bloom);
+  composer.addPass(rays);
   composer.addPass(output);
   composer.addPass(grade);
   composer.addPass(effects);
@@ -177,15 +215,46 @@ export function createPost(renderer, game) {
     blendSrc: THREE.ZeroFactor, blendDst: THREE.SrcColorFactor,
   });
   const blendQuad = new FullScreenQuad(blendMat);
+  const maskRT = new THREE.WebGLRenderTarget(4, 4, { type: THREE.UnsignedByteType, depthBuffer: false });
+  const maskQuad = new FullScreenQuad(new THREE.ShaderMaterial({ ...SkyMaskShader, uniforms: THREE.UniformsUtils.clone(SkyMaskShader.uniforms), depthTest: false, depthWrite: false }));
+  rays.uniforms.tMask.value = maskRT.texture;
+  const _sp = new THREE.Vector3(), _dir = new THREE.Vector3();
 
   const post = {
     mode: 'full',
     ao: false,
     composer,
     effects,
-    // Called by Game.renderScene between the world and weapon passes.
+    raysOn: false,
+    // Sun direction and strength for the light shafts, once per frame.
+    setRays(camera, sunDir, color, strength) {
+      rays.enabled = false;
+      if (!this.raysOn || this.mode !== 'full' || !(strength > 0.01)) return;
+      // a point well inside the far plane, along the sun's direction
+      _sp.copy(camera.position).addScaledVector(_dir.copy(sunDir).normalize(), 100).project(camera);
+      if (_sp.z > 1 || Math.abs(_sp.x) > 1.6 || Math.abs(_sp.y) > 1.6) return;
+      // fade as the sun leaves the screen
+      const off = Math.max(Math.abs(_sp.x), Math.abs(_sp.y));
+      const k = off < 1 ? 1 : 1 - (off - 1) / 0.6;
+      rays.uniforms.uSun.value.set(_sp.x * 0.5 + 0.5, _sp.y * 0.5 + 0.5);
+      rays.uniforms.uColor.value.set(color.r, color.g, color.b);
+      rays.uniforms.uStrength.value = strength * k;
+      rays.uniforms.uAspect.value = size.x / Math.max(1, size.y);
+      rays.enabled = true;
+    },
+    // Called by Game.renderScene between the world and weapon passes: the sky
+    // mask for the shafts, and ambient occlusion. Returns whether AO ran.
     applyAO(target, camera) {
-      if (!this.ao || this.mode === 'off' || !target || !target.depthTexture) return false;
+      if (this.mode === 'off' || !target || !target.depthTexture) return false;
+      if (rays.enabled) {
+        maskQuad.material.uniforms.tDepth.value = target.depthTexture;
+        const a = renderer.autoClear;
+        renderer.setRenderTarget(maskRT);
+        maskQuad.render(renderer);
+        renderer.setRenderTarget(target);
+        renderer.autoClear = a;
+      }
+      if (!this.ao) return false;
       const u = aoMat.uniforms;
       u.tDepth.value = target.depthTexture;
       u.uProj.value.copy(camera.projectionMatrix);
@@ -230,6 +299,7 @@ export function createPost(renderer, game) {
       composer.setSize(w, h);
       fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
       aoRT.setSize(Math.max(1, Math.round(w * pr / 2)), Math.max(1, Math.round(h * pr / 2)));
+      maskRT.setSize(Math.max(1, Math.round(w * pr / 4)), Math.max(1, Math.round(h * pr / 4)));
       bloom.resolution.set(w * pr / 2, h * pr / 2);
     },
     render(dt) {

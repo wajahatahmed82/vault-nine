@@ -23,6 +23,9 @@ const TYPES = {
 http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
   let file = path.join(ROOT, url === '/' ? 'index.html' : url);
+  // run-time assets live once, in docs/assets (what Pages serves); the dev
+  // page at the root asks for assets/... so map it there
+  if (url.startsWith('/assets/')) file = path.join(ROOT, 'docs', url);
 
   // never serve outside the project
   if (!file.startsWith(ROOT)) { res.statusCode = 403; return res.end('forbidden'); }

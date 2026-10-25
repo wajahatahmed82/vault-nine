@@ -1,6 +1,6 @@
 # VAULT NINE — working notes
 
-Story-driven FPS, browser + Android. Three.js, procedural geometry, audio and most textures. The only third-party content is nine CC0 photo textures (ambientCG), listed in ASSETS.md and embedded by `tools/cc0pack.js` into `src/cc0data.js`; any new asset must be listed to the user before download and logged there. Formerly ROBOT STRIKE; local folder and localStorage keys (`robotstrike.*`) keep the old name on purpose — renaming the keys would wipe every player's saves.
+Story-driven FPS, browser + Android. Three.js, procedural geometry, audio and most textures. Third-party content: nine CC0 photo textures (ambientCG, embedded by `tools/cc0pack.js` into `src/cc0data.js`) and three CC0 HDRI skies (Poly Haven, in `docs/assets/sky/`, loaded at run time), all listed in ASSETS.md; any new asset must be listed to the user before download and logged there. Formerly ROBOT STRIKE; local folder and localStorage keys (`robotstrike.*`) keep the old name on purpose — renaming the keys would wipe every player's saves.
 
 Live: https://wajahatahmed82.github.io/vault-nine/  (repo `wajahatahmed82/vault-nine`; old `robot-strike` Pages URL redirects)
 
@@ -10,7 +10,7 @@ Live: https://wajahatahmed82.github.io/vault-nine/  (repo `wajahatahmed82/vault-
     # http://localhost:5181
 
     npx --no-install esbuild src/main.js --bundle --format=iife --minify --outfile=dist/bundle.js
-    node tools/build.js             # writes the single-file build into docs/
+    node tools/build.js             # writes the built page into docs/ (run-time assets live in docs/assets/)
     git add -A && git commit -m "..." && git push   # Pages redeploys from docs/
 
 `?capture=1` enables `preserveDrawingBuffer`, screenshot tooling. `?fps` not needed — FPS readout is setting, on by default.
@@ -204,6 +204,22 @@ Driving camera (graphics prompt Phase 1): `placeDriverAndCamera(dt, look)` -- ba
 
 - **drivetest judges "where I'm going" as where the truck actually is 0.8 s later**, from the camera of the judged frame; a thin pole may hide it briefly, so the pass mark is "never hidden longer than 0.25 s" (actual: 99.55% of frames visible, longest gap 0.1 s).
 - **The abandoned car on Main Street (z 236) was moved 0.4 m kerbward** so a vehicle lane is 3.4 m wide; the truck used to wedge there.
+
+## Light and sky (graphics prompt 2, Phase 1)
+
+Skies: `sky.js` loads `assets/sky/<time>_{2k|1k}.hdr` (1k on phones) through `src/assets.js` (thin top progress bar), draws the two ridgelines and a below-horizon fill into the photo, converts to half floats, and uses it for background + PMREM. `TIMES[t].hdr` holds the photo's sun/moon direction and the background/env/hemi/sun/exposure scales; fog takes the photo's horizon colour away from the sun. The painted sky stays as the fallback. The dev server maps `/assets/` to `docs/assets/` so there is one copy; the APK copies only the 1k files.
+
+Shadows: `src/shadows.js` patches three's light loop for two cascades -- the sun (64 m, sharp) and `sunFar` (340 m, black light, radius 2.5, refreshed every 0.5 s or 6 m). Both boxes texel-snapped by `placeSnapped`. Far cascade on desktop at shadow size >= 1024; the auto-tuner drops it first (~11% GPU at the square, paired, throttled).
+
+Night: 6 lamp point lights on desktop, shop-window light pools (`windowPools`), wet-road lamp streaks (`wetStreaks`, 18 nearest lamps, rain only), one shared enemy muzzle-flash light, truck headlight spot (desktop). Light shafts: `post.setRays` + a sky mask drawn from the world pass's depth in `applyAO`, then a 40-tap radial pass in HDR before OutputPass; strength `TIMES[t].rays`.
+
+    const v = await import('/tools/views.js'); await v.capture(__rs, 'after')   // 5 views x 3 times -> shots/ (needs tools/shotsrv.js and ?capture)
+    const t = await import('/tools/gputime.js'); await t.queue(__rs, 'square', 'dusk'); t.read(__rs)   // GPU ms with timer queries
+
+- **Project the sun inside the far plane.** `camera.position + sunDir * 1000` lies past `camera.far` and projects as "behind the camera"; the shafts never switched on.
+- **Captures must run one real `game.update` per view.** The shadow boxes and lamp lights follow the player, not the camera; photo mode alone left every view outside both shadow maps.
+- **A script cut off mid-capture leaves photo mode on** (`game.update` is the no-op). Reload the page before the next capture.
+- **The photo skies are far brighter than the painted ones.** Day needed env 0.38, hemi x0.3, exposure 0.82 or pale yards blew out to white.
 
 ## Mobile and Android
 

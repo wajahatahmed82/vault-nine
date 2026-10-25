@@ -256,7 +256,8 @@ export function run(rs) {
     const sfx = W.audio;
     const realKill = sfx.killConfirm;
     sfx.killConfirm = (h) => { confirms++; realKill(h); };
-    const feedBefore = document.querySelectorAll('#killfeed > *').length;
+    // the feed keeps five rows, so count new rows by identity, not by length
+    const feedBefore = new Set(document.querySelectorAll('#killfeed > *'));
     let killMarkerSeen = false;
     const enemy = game.robots[0];
     // put a soldier in front and shoot him down
@@ -277,10 +278,10 @@ export function run(rs) {
     }
     input.touch.fire = false;
     sfx.killConfirm = realKill;
-    const feedAfter = document.querySelectorAll('#killfeed > *').length;
+    const feedNew = [...document.querySelectorAll('#killfeed > *')].filter((e) => !feedBefore.has(e)).length;
     rec('a kill shows the kill marker, adds a feed entry and plays its own sound',
-      killMarkerSeen && feedAfter > feedBefore && confirms > 0,
-      { killMarker: killMarkerSeen, feedEntries: feedAfter - feedBefore, killSounds: confirms,
+      killMarkerSeen && feedNew > 0 && confirms > 0,
+      { killMarker: killMarkerSeen, feedEntries: feedNew, killSounds: confirms,
         hadTarget: !!make });
   }
 

@@ -1,5 +1,8 @@
 import * as THREE from 'three';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { SHARED } from './townmat.js';
+import { load as loadAsset } from './assets.js';
+import { TOUCH_ONLY } from './input.js';
 
 // Atmosphere: sky, time of day, height fog, street lighting.
 //
@@ -8,6 +11,13 @@ import { SHARED } from './townmat.js';
 // of distant mountain ridgeline along the horizon -- so the valley reads as a
 // valley at every view distance, even when fog has eaten the real mountains.
 // The same image feeds the PMREM environment map, so reflections match.
+//
+// When the photographed sky for the time of day has loaded (assets/sky,
+// CC0 HDRIs from Poly Haven, see ASSETS.md) it replaces the painted one for
+// the background and the lighting: the sun or moon is put where the photo has
+// it, the two ridgelines are drawn into the photo's horizon in its own
+// colours, and the fog takes the photo's horizon colour so the edge of the
+// world melts into the sky. The painted sky stays as the fallback.
 //
 // Fog is three.js exponential fog with a height term patched into the shader
 // chunks: thicker on the valley floor, thinner up the mountainsides, so peaks
@@ -51,6 +61,9 @@ export const TIMES = {
     hemiSky: [0.78, 0.84, 0.92], hemiGround: [0.46, 0.43, 0.38], hemiI: 2.3,
     fog: [0.60, 0.66, 0.73], fogMul: 0.6, exposure: 1.0, env: 1.1, day: 1, night: 0, clouds: 0.45,
     ridgeFar: [0.62, 0.68, 0.76], ridgeNear: [0.48, 0.54, 0.6],
+    // the photographed sky: where its sun is, how bright to show and light with
+    hdr: { sunEl: 48, sunAz: 34.2, bg: 0.85, env: 0.38, hemi: 0.3, sunI: 2.9, exposure: 0.82, fog: 0.9 },
+    rays: 0.35,
   },
   dusk: {
     sunEl: 6, sunAz: -96, sunCol: [1.0, 0.62, 0.36], sunI: 2.6,
@@ -58,6 +71,10 @@ export const TIMES = {
     hemiSky: [0.58, 0.55, 0.66], hemiGround: [0.34, 0.29, 0.27], hemiI: 1.7,
     fog: [0.43, 0.40, 0.47], fogMul: 1.0, exposure: 1.08, env: 0.8, day: 0.5, night: 0.6, clouds: 0.55,
     ridgeFar: [0.37, 0.34, 0.42], ridgeNear: [0.26, 0.24, 0.31],
+    // the photo's sun sits 2 degrees up; the light comes from 7 so the town
+    // is not all one long shadow
+    hdr: { sunEl: 2, sunAz: 37.7, lightEl: 7, bg: 0.55, env: 0.55, hemi: 0.5, sunI: 2.4, exposure: 1.0, fog: 0.75 },
+    rays: 1.1,
   },
   night: {
     sunEl: 38, sunAz: 60, sunCol: [0.55, 0.64, 0.92], sunI: 0.42,
@@ -65,6 +82,8 @@ export const TIMES = {
     hemiSky: [0.20, 0.23, 0.34], hemiGround: [0.07, 0.07, 0.08], hemiI: 1.0,
     fog: [0.055, 0.065, 0.095], fogMul: 1.1, exposure: 1.35, env: 0.25, day: 0, night: 1, clouds: 0.3, stars: true,
     ridgeFar: [0.05, 0.06, 0.09], ridgeNear: [0.03, 0.035, 0.05],
+    // a clear moonlit sky, exposed far brighter than night looks: shown dim
+    hdr: { sunEl: 17, sunAz: 35.6, bg: 0.09, env: 0.16, hemi: 0.8, sunI: 0.42, exposure: 1.35, fog: 0.85 },
   },
 };
 
@@ -186,6 +205,52 @@ export function createAtmosphere(game, renderer, opts = {}) {
   pools.frustumCulled = false;
   scene.add(pools);
 
+  // ---- shop windows spill light onto the pavement at night ----
+  const winSpots = [];
+  for (const b of town.buildings) {
+    if (!b.shop) continue;
+    for (let lx = -b.w / 2 + 2; lx <= b.w / 2 - 2; lx += 3.5) {
+      const q = town.local(b, lx, b.d / 2 + 1.4);
+      winSpots.push([q.x, town.surfaceH(q.x, q.z) + 0.11, q.z, b.rot]);
+    }
+  }
+  const winPools = new THREE.InstancedMesh(poolGeo, poolMat.clone(), Math.max(1, winSpots.length));
+  winSpots.forEach(([x, y, z, rot], i) => {
+    m4.makeRotationY(rot).scale(new THREE.Vector3(4.2, 1, 2.6)).setPosition(x, y, z);
+    winPools.setMatrixAt(i, m4);
+    winPools.setColorAt(i, new THREE.Color(0.55, 0.42, 0.26));
+  });
+  winPools.count = winSpots.length;
+  winPools.renderOrder = 1;
+  winPools.frustumCulled = false;
+  winPools.name = 'windowPools';
+  scene.add(winPools);
+
+  // ---- wet roads: each nearby lamp leaves a long streak on the tarmac ----
+  // A reflection on a wet road runs from under the lamp towards the viewer,
+  // stretched by the water; one additive strip per lamp, re-aimed every frame.
+  const streakTex = (() => {
+    const c = document.createElement('canvas'); c.width = 32; c.height = 128;
+    const gx = c.getContext('2d');
+    const gr = gx.createLinearGradient(0, 0, 0, 128);
+    gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.18, 'rgba(255,255,255,0.9)');
+    gr.addColorStop(0.55, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    gx.fillStyle = gr; gx.fillRect(0, 0, 32, 128);
+    const side = gx.createLinearGradient(0, 0, 32, 0);
+    side.addColorStop(0, 'rgba(0,0,0,1)'); side.addColorStop(0.5, 'rgba(0,0,0,0)'); side.addColorStop(1, 'rgba(0,0,0,1)');
+    gx.globalCompositeOperation = 'destination-out'; gx.fillStyle = side; gx.fillRect(0, 0, 32, 128);
+    return new THREE.CanvasTexture(c);
+  })();
+  const NS = 18;
+  const streaks = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ map: streakTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: true }), NS);
+  streaks.renderOrder = 2;
+  streaks.frustumCulled = false;
+  streaks.visible = false;
+  streaks.name = 'wetStreaks';
+  scene.add(streaks);
+  const _s = new THREE.Vector3(1, 1, 1), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+
   // ---- a few real lights, moved to the nearest lamps ----
   const NL = opts.pointLights ?? 4;
   const lights = [];
@@ -199,12 +264,114 @@ export function createAtmosphere(game, renderer, opts = {}) {
   const flicker = new Set();
   for (let i = 0; i < lampsAll.length; i += 23) flicker.add(i);
 
-  const state = { time: 'dusk', T: TIMES.dusk, night: 0, weather: 'clear', t: 0, lastAssign: -1 };
+  const state = { time: 'dusk', T: TIMES.dusk, night: 0, weather: 'clear', t: 0, lastAssign: -1, hdr: null };
   let skyTex = null, envRT = null;
+  const photo = new Map();          // time -> { tex, fog } once loaded and processed
+  const loading = new Set();
+  const rgbe = new RGBELoader().setDataType(THREE.FloatType);
+
+  // Ridgelines and below-horizon fill drawn into the photo in its own light,
+  // then converted to half floats for the GPU. Returns the horizon colour.
+  function processPhoto(tex, T) {
+    const { width: W, height: H, data } = tex.image;
+    // average colour just above the horizon (rows are top-down after flipY),
+    // away from the sun: the glow round a low sun is not the haze colour
+    let hr = 0, hg = 0, hb = 0, n = 0;
+    const sAz = THREE.MathUtils.degToRad(T.hdr.sunAz);
+    for (let y = 0; y < H; y++) {
+      const el = (0.5 - (y + 0.5) / H) * Math.PI;
+      if (el < 0.005 || el > 0.12) continue;
+      for (let x = 0; x < W; x += 2) {
+        let d = Math.abs(((x + 0.5) / W - 0.5) * Math.PI * 2 - sAz);
+        if (d > Math.PI) d = Math.PI * 2 - d;
+        if (d < 1.4) continue;
+        const o = (y * W + x) * 4; hr += data[o]; hg += data[o + 1]; hb += data[o + 2]; n++;
+      }
+    }
+    const hz = [hr / n, hg / n, hb / n];
+    const mul = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+    // ridges: the painted sky's colours relative to its own fog, scaled into
+    // the photo's brightness
+    const rel = (c) => [c[0] / Math.max(0.01, T.fog[0]), c[1] / Math.max(0.01, T.fog[1]), c[2] / Math.max(0.01, T.fog[2])];
+    const rf = rel(T.ridgeFar), rn = rel(T.ridgeNear);
+    const far = [hz[0] * Math.min(1.1, rf[0]), hz[1] * Math.min(1.1, rf[1]), hz[2] * Math.min(1.1, rf[2])];
+    const near = [hz[0] * Math.min(1, rn[0]) * 0.85, hz[1] * Math.min(1, rn[1]) * 0.85, hz[2] * Math.min(1, rn[2]) * 0.85];
+    const below = mul(hz, 0.55);
+    // ridge heights depend only on direction: one pair per column
+    const RN = new Float32Array(W), RF = new Float32Array(W);
+    for (let x = 0; x < W; x++) {
+      const az = ((x + 0.5) / W - 0.5) * Math.PI * 2;
+      RN[x] = (0.6 + fbm(az * 5.0 - 4, 2.5, 4) * 3.4) * Math.PI / 180;
+      RF[x] = (2.2 + fbm(az * 3.0 + 10, 0.5, 4) * 5.5) * Math.PI / 180;
+    }
+    for (let y = 0; y < H; y++) {
+      const el = (0.5 - (y + 0.5) / H) * Math.PI;
+      if (el > 0.15) continue;
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
+        let c = null;
+        if (el <= -0.02) c = below;
+        else {
+          const ridgeNear = RN[x], ridgeFar = RF[x];
+          if (el < ridgeNear) c = near;
+          else if (el < ridgeFar) {
+            const k = 0.55 + 0.35 * Math.max(0, el / ridgeFar);
+            c = [far[0] + (data[o] - far[0]) * (1 - k) * 0.4, far[1] + (data[o + 1] - far[1]) * (1 - k) * 0.4, far[2] + (data[o + 2] - far[2]) * (1 - k) * 0.4];
+          }
+        }
+        if (c) { data[o] = c[0]; data[o + 1] = c[1]; data[o + 2] = c[2]; }
+      }
+    }
+    // half floats: filterable everywhere, half the memory
+    const half = new Uint16Array(data.length);
+    for (let i = 0; i < data.length; i++) half[i] = THREE.DataUtils.toHalfFloat(Math.min(65000, data[i]));
+    const out = new THREE.DataTexture(half, W, H, THREE.RGBAFormat, THREE.HalfFloatType);
+    out.mapping = THREE.EquirectangularReflectionMapping;
+    out.colorSpace = THREE.LinearSRGBColorSpace;
+    out.flipY = tex.flipY;
+    out.magFilter = THREE.LinearFilter; out.minFilter = THREE.LinearFilter;
+    out.generateMipmaps = false;
+    out.needsUpdate = true;
+    tex.dispose();
+    return { tex: out, fog: hz };
+  }
+
+  function requestPhoto(name) {
+    if (photo.has(name) || loading.has(name) || opts.photoSky === false) return;
+    loading.add(name);
+    loadAsset(rgbe, `assets/sky/${name}_${TOUCH_ONLY ? '1k' : '2k'}.hdr`).then((tex) => {
+      loading.delete(name);
+      photo.set(name, processPhoto(tex, TIMES[name]));
+      if (state.time === name) applyPhoto(name);
+    }).catch((err) => { loading.delete(name); console.warn('sky photo failed, keeping the painted sky', err); });
+  }
+
+  function applyPhoto(name) {
+    const P = photo.get(name), T = TIMES[name], H = T.hdr;
+    scene.background = P.tex;
+    scene.backgroundIntensity = H.bg;
+    if (envRT) envRT.dispose();
+    envRT = pmrem.fromEquirectangular(P.tex);
+    scene.environment = envRT.texture;
+    scene.environmentIntensity = H.env;
+    // the light comes from where the photo's sun (or moon) is
+    const sd = sunDir({ sunEl: H.lightEl ?? H.sunEl, sunAz: H.sunAz });
+    game.sunOffset = sd.clone().multiplyScalar(60);
+    state.sunDir = sunDir({ sunEl: H.sunEl, sunAz: H.sunAz });
+    sun.intensity = H.sunI;
+    if (hemi) hemi.intensity = T.hemiI * H.hemi;
+    renderer.toneMappingExposure = H.exposure;
+    // fog in the photo's horizon colour, as it is shown
+    state.fogPhoto = [P.fog[0] * H.bg * H.fog, P.fog[1] * H.bg * H.fog, P.fog[2] * H.bg * H.fog];
+    state.hdr = name;
+    applyWeather();
+  }
 
   function setTime(name) {
     const T = TIMES[name] || TIMES.dusk;
     state.time = name; state.T = T;
+    state.hdr = null; state.fogPhoto = null;
+    scene.backgroundIntensity = 1;
     if (skyTex) skyTex.dispose();
     skyTex = paintSky(T);
     scene.background = skyTex;
@@ -224,7 +391,10 @@ export function createAtmosphere(game, renderer, opts = {}) {
     SHARED.uNight.value = T.night;
     state.night = T.night;
     town.materials.signs.emissiveIntensity = T.night * 0.9;
+    state.sunDir = sd;
     applyWeather();
+    // swap in the photographed sky (now if it is already here, else when it lands)
+    if (photo.has(name)) applyPhoto(name); else requestPhoto(name);
   }
 
   function applyWeather() {
@@ -233,11 +403,12 @@ export function createAtmosphere(game, renderer, opts = {}) {
     if (SHARED.uWind) SHARED.uWind.value = rain ? 2.2 : 1;
     if (scene.fog) {
       const T = state.T;
-      const f = rain ? lerp3(T.fog, [T.fog[0] * 0.8, T.fog[1] * 0.82, T.fog[2] * 0.86], 0.6) : T.fog;
+      const base = state.fogPhoto || T.fog;
+      const f = rain ? lerp3(base, [base[0] * 0.8, base[1] * 0.82, base[2] * 0.86], 0.6) : base;
       scene.fog.color.setRGB(...f);
       game.fogMul = T.fogMul * (rain ? 1.35 : 1);
     }
-    sun.intensity = state.T.sunI * (rain ? 0.45 : 1);
+    sun.intensity = (state.hdr ? state.T.hdr.sunI : state.T.sunI) * (rain ? 0.45 : 1);
   }
 
   function setWeather(w) { state.weather = w; applyWeather(); }
@@ -271,6 +442,35 @@ export function createAtmosphere(game, renderer, opts = {}) {
     heads.instanceColor.needsUpdate = true;
     pools.instanceColor.needsUpdate = true;
     pools.visible = n > 0.05;
+    winPools.visible = n > 0.05;
+    winPools.material.color.setScalar(n * pw);
+
+    // wet-road streaks under the nearest lit street lamps
+    const wet = SHARED.uWet.value;
+    streaks.visible = wet > 0.05 && n > 0.05 && pw > 0;
+    if (streaks.visible) {
+      const near = [];
+      for (const l of lampsStreet) {
+        const d = (l.x - cam.x) ** 2 + (l.z - cam.z) ** 2;
+        if (d < 2500) near.push([d, l]);
+      }
+      near.sort((a, b) => a[0] - b[0]);
+      for (let i = 0; i < NS; i++) {
+        const e = near[i];
+        if (!e) { m4.makeScale(0, 0, 0); streaks.setMatrixAt(i, m4); continue; }
+        const l = e[1];
+        const dx = cam.x - l.x, dz = cam.z - l.z, dd = Math.hypot(dx, dz) || 1;
+        const len = Math.min(9, 2 + dd * 0.35);
+        _p.set(l.x + dx / dd * len * 0.5, town.surfaceH(l.x, l.z) + 0.12, l.z + dz / dd * len * 0.5);
+        _q.setFromAxisAngle(_up, Math.atan2(dx, dz));
+        _s.set(0.9, 1, len);
+        m4.compose(_p, _q, _s);
+        streaks.setMatrixAt(i, m4);
+        streaks.setColorAt(i, col.setRGB(1.1 * n * wet, 0.8 * n * wet, 0.5 * n * wet));
+      }
+      streaks.instanceMatrix.needsUpdate = true;
+      if (streaks.instanceColor) streaks.instanceColor.needsUpdate = true;
+    }
 
     // assign point lights to the nearest lamps a few times a second
     if (NL && state.t - state.lastAssign > 0.25) {
@@ -293,5 +493,5 @@ export function createAtmosphere(game, renderer, opts = {}) {
   }
 
   setTime(opts.time || 'dusk');
-  return { setTime, setWeather, update, state, heads, pools, lights, get night() { return state.night; } };
+  return { setTime, setWeather, update, state, heads, pools, lights, photo, get night() { return state.night; } };
 }

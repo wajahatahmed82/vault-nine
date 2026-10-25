@@ -36,6 +36,19 @@ fs.writeFileSync(path.join(ROOT, 'dist/index.html'), html);
 fs.writeFileSync(path.join(ROOT, 'docs/index.html'), html);
 fs.writeFileSync(path.join(ROOT, 'docs/.nojekyll'), '');
 
+// Run-time assets (skies now, models later) live in docs/assets, beside the
+// built page; the dev server maps /assets/ there too. Only counted here.
+let assetBytes = 0;
+const count = (dir) => {
+  if (!fs.existsSync(dir)) return;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const a = path.join(dir, e.name);
+    if (e.isDirectory()) count(a); else assetBytes += fs.statSync(a).size;
+  }
+};
+count(path.join(ROOT, 'docs/assets'));
+
 const kb = (p) => (fs.statSync(path.join(ROOT, p)).size / 1024).toFixed(0) + ' KB';
 console.log('bundle.js        ' + kb('dist/bundle.js'));
-console.log('docs/index.html  ' + kb('docs/index.html') + '  (single file)');
+console.log('docs/index.html  ' + kb('docs/index.html'));
+console.log('docs/assets/     ' + (assetBytes / 1024).toFixed(0) + ' KB (loaded on demand)');
