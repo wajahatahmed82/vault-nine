@@ -245,11 +245,17 @@ export function createLife(game, opts = {}) {
       const u0 = col / SIGN_COLS, u1 = (col + 1) / SIGN_COLS, v1 = 1 - row / SIGN_ROWS, v0 = 1 - (row + 1) / SIGN_ROWS;
       const cx = h.x + out[0] * 0.55, cz = h.z + out[2] * 0.55;
       const half = 0.5, top = h.y + 0.5, bot = h.y - 0.0;
-      const A = [cx - out[0] * half, bot, cz - out[2] * half], B = [cx + out[0] * half, bot, cz + out[2] * half];
-      const C = [B[0], top, B[2]], D = [A[0], top, A[2]];
+      // one face each side of a 2.4 cm board, each reading left to right
+      // from its own side (a viewer on +side has -out on the right)
       const side = [cs, 0, -sn];
-      buf.quad(A, B, C, D, side, [1, 1, 1], [u0, v0, u1, v0, u1, v1, u0, v1]);
-      buf.quad(B, A, D, C, [-side[0], 0, -side[2]], [1, 1, 1], [u0, v0, u1, v0, u1, v1, u0, v1]);
+      const face = (e) => {
+        const ox = side[0] * 0.012 * e, oz = side[2] * 0.012 * e;
+        const A = [cx - out[0] * half + ox, bot, cz - out[2] * half + oz], B = [cx + out[0] * half + ox, bot, cz + out[2] * half + oz];
+        const C = [B[0], top, B[2]], D = [A[0], top, A[2]];
+        if (e > 0) buf.quad(A, B, C, D, side, [1, 1, 1], [u1, v0, u0, v0, u0, v1, u1, v1]);
+        else buf.quad(B, A, D, C, [-side[0], 0, -side[2]], [1, 1, 1], [u1, v0, u0, v0, u0, v1, u1, v1]);
+      };
+      face(1); face(-1);
       push(from, [cx, h.y + 0.6, cz], out, 1, i * 1.7);
     });
     const geo = buf.geometry();

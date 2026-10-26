@@ -45,6 +45,7 @@ const MATS = () => ({
   lamp: new THREE.MeshStandardMaterial({ color: 0xf2efe4, roughness: 0.15, metalness: 0.1, emissive: 0x000000 }),
   tail: new THREE.MeshStandardMaterial({ color: 0x8a1410, roughness: 0.2, metalness: 0.1 }),
   plate: new THREE.MeshStandardMaterial({ color: 0xe8e4d8, roughness: 0.5 }),
+  mixed: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.05 }),
 });
 
 // geometry writer: positions/normals per material, smooth normals computed later
@@ -272,6 +273,24 @@ function mergeList(list) {
   return out;
 }
 
+// position, normal and colour of several geometries in one
+function mergeColoured(list) {
+  const clean = list.map((g) => (g.index ? g.toNonIndexed() : g));
+  let n = 0;
+  for (const g of clean) n += g.attributes.position.count;
+  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  let o = 0;
+  for (const g of clean) {
+    pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3); col.set(g.attributes.color.array, o * 3);
+    o += g.attributes.position.count;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return out;
+}
+
 export const CAR_KINDS = [];
 let built = false;
 export function registerCars() {
@@ -280,10 +299,24 @@ export function registerCars() {
   const M = MATS();
   for (const [name, S] of Object.entries(STYLES)) {
     const { geos, wheelGeo } = buildStyle(S);
-    const parts = [];
-    for (const [k, g] of Object.entries(geos)) parts.push({ geometry: g, material: M[k], matrix: new THREE.Matrix4(), paint: k === 'paint' });
-    parts.push({ geometry: mergeList(wheelGeo.tyre), material: M.tyre, matrix: new THREE.Matrix4() });
+    // paint (per-car colour), glass and chrome keep their own materials; trim,
+    // lamps, tail lights, plates and tyres share one vertex-coloured material:
+    // 4 draws a style instead of 8, in every pass
+    const parts = [], mixed = [];
+    const tint = (g, m) => {
+      if (!g) return;
+      const c = m.color, n = g.attributes.position.count, col = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      mixed.push(g);
+    };
+    for (const [k, g] of Object.entries(geos)) {
+      if (k === 'paint' || k === 'glass' || k === 'chrome') parts.push({ geometry: g, material: M[k], matrix: new THREE.Matrix4(), paint: k === 'paint' });
+      else tint(g, M[k]);
+    }
+    tint(mergeList(wheelGeo.tyre), M.tyre);
     parts.push({ geometry: mergeList(wheelGeo.rim), material: M.chrome, matrix: new THREE.Matrix4() });
+    if (mixed.length) parts.push({ geometry: mergeColoured(mixed), material: M.mixed, matrix: new THREE.Matrix4() });
     registerKind('car_' + name, { parts, size: new THREE.Vector3(S.W, S.roof, S.L), shadow: true });
     CAR_KINDS.push('car_' + name);
   }

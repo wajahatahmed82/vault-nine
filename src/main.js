@@ -250,13 +250,27 @@ requestAnimationFrame(frame);
 let humansDone = false;
 // Street props, furniture and plants (models.js) swap in for the town's
 // stand-ins as soon as they are in; the shaders compile now, not mid-game.
+// loadTimes: ms since navigation, for the load report
+const loadTimes = { town: Math.round(performance.now()) };
 const models = loadModels(renderer).then((ok) => {
+  loadTimes.models = Math.round(performance.now());
   if (!ok) return game.town.modelsAttached;
   const r = game.town.attachModels();
   renderer.compile(game.scene, game.camera);
+  // upload every model texture now: each kind's first appearance otherwise
+  // stalls a frame while its KTX2 maps go to the GPU
+  const seen = new Set();
+  game.town.modelsG.traverse((o) => {
+    const m = o.material;
+    if (!m || seen.has(m)) return;
+    seen.add(m);
+    for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap']) if (m[k]) renderer.initTexture(m[k]);
+  });
+  loadTimes.modelsOn = Math.round(performance.now());
   return r;
 });
 const humans = loadHumans().then(() => {
+  loadTimes.humans = Math.round(performance.now());
   humansDone = true;
   if (humansReady()) game.weapons.useArms(new FPArms(VIEW_LAYER));
 });
@@ -273,6 +287,7 @@ window.__rs = {
   audioLog: () => audio.spatialLog,
   humans,                          // resolves once the soldier models are in
   models,                          // resolves once the street props are attached
+  loadTimes,
   get humansReady() { return humansReady(); },
   useHumans,
   get renderScale() { return renderScale; },

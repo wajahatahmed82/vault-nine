@@ -1,4 +1,9 @@
 import { FACADE, FACADE_TILE, ROOF_TILE, SIGN_COLS, SIGN_ROWS, tile } from './texgen.js';
+import { decalUV, DECAL } from './towndecals.js';
+import { terrainH } from './terrain.js';
+
+// deterministic 0..1 from a building and a position on it
+const hash = (b, u, y) => { const h = Math.sin(b.x * 12.9898 + b.z * 78.233 + u * 37.719 + y * 11.13) * 43758.5453; return h - Math.floor(h); };
 
 // The modular building kit.
 //
@@ -79,6 +84,12 @@ function windowBay(K, N, f, u, y, ww, wh, b, opts = {}) {
   // sill and lintel
   fbox(N.trim, f, u, y - wh / 2 - 0.05, 0.13, ww + 0.3, 0.09, 0.2, STONE);
   if (b.lintel) fbox(N.trim, f, u, y + wh / 2 + 0.24, 0.13, ww + 0.34, 0.18, 0.04, STONE);
+  // rain off the sill streaks the wall below it
+  if (N.decal && hash(b, u, y) < 0.55) {
+    const gh = 0.6 + hash(b, y, u) * 0.8;
+    N.decal.su = N.decal.sv = 1;
+    fquad(N.decal, f, u, y - wh / 2 - 0.1 - gh / 2, 0.012, ww + 0.2, gh, [0.85, 0.85, 0.85], decalUV(hash(b, u, 1) < 0.5 ? DECAL.grime : DECAL.grimeB));
+  }
   b.windows.push({ f: f.key, u, y, w: ww, h: wh });
 }
 
@@ -142,10 +153,12 @@ export function emitBuilding(b, N, F, signs) {
   // ---- façades ----
   for (const f of faces) {
     if (f.side && b.party) continue;
-    if (b.kind === 'warehouse') { warehouseFace(K, N, f, b); continue; }
+    if (b.kind === 'warehouse') { warehouseFace(K, N, f, b); wallMarks(K, N, f, b, true); wallKit(K, N, f, b); continue; }
     const sp = b.kind === 'house' || b.kind === 'terrace' ? 3.0 : 2.7;
     const n = Math.max(f.len > 4 ? 1 : 0, Math.floor((f.len - 1.4) / sp));
-    if (!n) continue;
+    downpipes(K, N, f, b);
+    wallKit(K, N, f, b);
+    if (!n) { wallMarks(K, N, f, b, false); continue; }
     const step = f.len / n;
     for (let s = 0; s < b.storeys; s++) {
       const sy = base + s * b.sh;
@@ -160,6 +173,7 @@ export function emitBuilding(b, N, F, signs) {
         const tall = b.kind === 'civic' ? 2.3 : 1.45;
         const ww = b.kind === 'civic' ? 1.3 : 1.1;
         windowBay(K, N, f, u, sy + 0.95 + tall / 2, ww, tall, b);
+        if (s >= 1 && f.front && b.storeys >= 3 && b.kind !== 'house' && hash(b, u, s) < 0.35) balcony(K, N, f, u, sy, ww, b);
       }
     }
   }
@@ -168,6 +182,101 @@ export function emitBuilding(b, N, F, signs) {
   if (b.chimney) chimney(K, N, b);
   if (b.tag === 'clocktower') clockFaces(K, N, b);
   void fbox;
+}
+
+// Downpipes from the gutter to the ground at both ends of the long faces, on
+// brackets, with a shoe at the foot.
+// The pipes are the CC0 gutter kit (models.js downpipe, hopper, shoe); the
+// box pipe stands in until they arrive.
+function downpipes(K, N, f, b) {
+  if (f.side || !N.trim) return;
+  const { fbox } = K, top = b.base + b.H, y0 = b.foot;
+  const col = hash(b, 1, 2) < 0.5 ? [0.16, 0.16, 0.17] : [0.72, 0.72, 0.7];
+  for (const end of [-1, 1]) {
+    if (hash(b, end, f.n[0] + f.n[1] * 2) < 0.35) continue;
+    const u = end * (f.len / 2 - 0.22);
+    for (let y = y0 + 1.2; y < top - 0.4; y += 1.8) fbox(N.trim, f, u, y, 0.06, 0.12, 0.04, 0.12, col);
+    const [x, , z] = K.W(...(([lx, lz]) => [lx, 0, lz])(K.fpos(f, u, 0.1)));
+    if (b.place && N.props) {
+      const g = Math.max(y0 + 0.4, terrainH(x, z) + 0.15), rot = faceRot(b, f);
+      fbox(N.props, f, u, (g + top) / 2, 0.09, 0.08, top - g - 0.1, 0.08, col);
+      b.place('pipeOutlet', x, g, z, rot, 1);
+      b.place('downpipe', x, g + 0.38, z, rot, 1, Math.max(0.5, top - 0.75 - g));
+      b.place('pipeFunnel', x, top - 0.38, z, rot, 1);
+    } else {
+      fbox(N.trim, f, u, (y0 + top) / 2, 0.09, 0.08, top - y0 - 0.1, 0.08, col);
+      fbox(N.trim, f, u, y0 + 0.12, 0.16, 0.1, 0.1, 0.22, col);
+    }
+  }
+}
+
+// world yaw that turns a model's front (+Z) out of face f
+const faceRot = (b, f) => b.rot + Math.atan2(f.n[0], f.n[1]);
+const faceAt = (K, f, u, o) => { const [lx, lz] = K.fpos(f, u, o); return K.W(lx, 0, lz); };
+
+// Services on the walls: air-con units at the back of shops and terraces,
+// floodlights over warehouse doors, fire escapes on tall shop backs.
+function wallKit(K, N, f, b) {
+  if (!b.place) return;
+  const rot = faceRot(b, f);
+  if (f.back && ['shop', 'terrace', 'civic'].includes(b.kind) && hash(b, 5, 1) < 0.6 && f.len > 4) {
+    const u = (hash(b, 5, 2) - 0.5) * (f.len - 2.4);
+    const [x, , z] = faceAt(K, f, u, 0.2);
+    b.place(hash(b, 5, 3) < 0.4 ? 'airconRust' : 'aircon', x, terrainH(x, z) + 0.15, z, rot, 1);
+    if (hash(b, 5, 4) < 0.4 && b.storeys > 1) {
+      const [x2, , z2] = faceAt(K, f, -u * 0.6, 0.2);
+      b.place('aircon', x2, b.base + b.sh + 0.15, z2, rot, 1);   // on a bracket at the first floor
+    }
+  }
+  if (b.kind === 'warehouse' && (f.front || f.back)) {
+    for (const e of [-1, 1]) {
+      const [x, , z] = faceAt(K, f, e * f.len / 4, 0.2);
+      b.place('floodlight', x, b.base + Math.min(b.sh - 1, 4.6), z, rot, 1.3);
+    }
+  }
+  if (f.back && b.kind === 'shop' && b.storeys >= 3 && f.len >= 7.5 && hash(b, 6, 1) < 0.6) {
+    const [x, , z] = faceAt(K, f, (hash(b, 6, 2) - 0.5) * (f.len - 7), 0.71);
+    b.place('fireEscape', x, b.base + 3.65, z, rot, 1);
+  }
+}
+
+// Blank walls and warehouse sides collect posters, graffiti and cracks.
+function wallMarks(K, N, f, b, industrial) {
+  if (!N.decal || f.len < 3) return;
+  const { fquad } = K;
+  N.decal.su = N.decal.sv = 1;
+  const n = Math.floor(f.len / 6);
+  for (let k = 0; k < n; k++) {
+    const h = hash(b, k, f.n[0] * 3 + f.n[1]);
+    if (h > (industrial ? 0.5 : 0.4)) continue;
+    const u = -f.len / 2 + (k + 0.5) * (f.len / n) + (hash(b, f.n[1], k) - 0.5) * 1.5;
+    const pick = hash(b, k * 7, 3);
+    if (pick < 0.4) {
+      const cell = [DECAL.graffiti, DECAL.graffitiB, DECAL.graffitiC][Math.floor(hash(b, k, 9) * 3)];
+      fquad(N.decal, f, u, b.base + 0.4 + 1.0, 0.012, 2.6, 2.0, [0.92, 0.92, 0.92], decalUV(cell));
+    } else if (pick < 0.75 && !industrial) {
+      const cell = [DECAL.poster, DECAL.posterB, DECAL.posterC, DECAL.posterD][Math.floor(hash(b, k, 5) * 4)];
+      fquad(N.decal, f, u, b.base + 1.55, 0.012, 0.75, 0.75, [1, 1, 1], decalUV(cell));
+      if (hash(b, k, 6) < 0.5) fquad(N.decal, f, u + 0.8, b.base + 1.5, 0.013, 0.7, 0.7, [0.95, 0.95, 0.95], decalUV(DECAL.posterD));
+    } else {
+      fquad(N.decal, f, u, b.base + 1.2 + hash(b, k, 4) * 2, 0.012, 1.2, 1.8, [1, 1, 1], decalUV(hash(b, k, 8) < 0.5 ? DECAL.crack : DECAL.crackB));
+    }
+  }
+}
+
+// A balcony at one upper window: a slab on brackets, railing posts and rails.
+function balcony(K, N, f, u, sy, ww, b) {
+  const { fbox } = K, y = sy + 0.12;
+  const W = ww + 0.8, D = 0.85, metal = [0.14, 0.14, 0.15];
+  fbox(N.trim, f, u, y, D / 2, W, 0.14, D, [0.7, 0.69, 0.66]);
+  for (const e of [-1, 1]) fbox(N.trim, f, u + e * (W / 2 - 0.15), y - 0.22, 0.3, 0.08, 0.3, 0.5, [0.6, 0.59, 0.56]);
+  fbox(N.trim, f, u, y + 0.98, D - 0.03, W, 0.05, 0.05, metal);
+  fbox(N.trim, f, u, y + 0.5, D - 0.03, W, 0.03, 0.03, metal);
+  for (let k = 0; k <= 10; k++) fbox(N.trim, f, u - W / 2 + k * W / 10, y + 0.55, D - 0.03, 0.025, 0.86, 0.025, metal);
+  for (const e of [-1, 1]) {
+    fbox(N.trim, f, u + e * W / 2, y + 0.98, D / 2, 0.05, 0.05, D, metal);
+    for (let k = 1; k < 4; k++) fbox(N.trim, f, u + e * W / 2, y + 0.55, k * D / 4, 0.025, 0.86, 0.025, metal);
+  }
 }
 
 function warehouseFace(K, N, f, b) {
@@ -195,6 +304,17 @@ function warehouseFace(K, N, f, b) {
   }
 }
 
+// A raised sign board on a fascia whose face is at `o`: a 5 cm board with
+// a moulded frame standing 3 cm proud of it, the lettering on the board.
+function signBoard(K, N, f, y, o, w, h, col) {
+  const { fbox } = K, fr = [col[0] * 0.55, col[1] * 0.55, col[2] * 0.55], t = 0.06;
+  fbox(N.trim, f, 0, y, o + 0.025, w + 0.04, h + 0.04, 0.05, col);
+  fbox(N.trim, f, 0, y + h / 2 + t / 2, o + 0.04, w + 2 * t, t, 0.08, fr);
+  fbox(N.trim, f, 0, y - h / 2 - t / 2, o + 0.04, w + 2 * t, t, 0.08, fr);
+  fbox(N.trim, f, -w / 2 - t / 2, y, o + 0.04, t, h, 0.08, fr);
+  fbox(N.trim, f, w / 2 + t / 2, y, o + 0.04, t, h, 0.08, fr);
+}
+
 function shopfront(K, N, f, b, sy, signs) {
   const { fbox, fquad } = K;
   const L = f.len;
@@ -220,7 +340,8 @@ function shopfront(K, N, f, b, sy, signs) {
     const v1 = 1 - row / SIGN_ROWS, v0 = 1 - (row + 1) / SIGN_ROWS;
     // atlas cells are 4:1; allow a little stretch on wide fascias
     const sw = Math.min(L - 0.8, 3.0);
-    fquad(signs, f, 0, sy + 3.25, 0.26, sw, 0.6, [1, 1, 1], [u0, v0, u1, v0, u1, v1, u0, v1]);
+    signBoard(K, N, f, sy + 3.25, 0.25, sw, 0.6, b.shopC);
+    fquad(signs, f, 0, sy + 3.25, 0.302, sw, 0.6, [1, 1, 1], [u0, v0, u1, v0, u1, v1, u0, v1]);
   }
   if (b.awning) {
     const [c1, c2] = b.awning;
@@ -427,27 +548,39 @@ export function emitEnterable(b, N, K, signs) {
     const col = b.sign % SIGN_COLS, row = Math.floor(b.sign / SIGN_COLS);
     const u0 = col / SIGN_COLS, u1 = (col + 1) / SIGN_COLS, v1 = 1 - row / SIGN_ROWS, v0 = 1 - (row + 1) / SIGN_ROWS;
     fbox(N.trim, f, 0, base + sh - 0.55, 0.06, Math.min(f.len - 0.6, 5.2), 0.75, 0.12, b.shopC || [0.25, 0.3, 0.32]);
-    fquad(signs, f, 0, base + sh - 0.55, 0.13, Math.min(f.len - 1.0, 4.6), 0.62, [1, 1, 1], [u0, v0, u1, v0, u1, v1, u0, v1]);
+    signBoard(K, N, f, base + sh - 0.55, 0.12, Math.min(f.len - 1.0, 4.6), 0.62, b.shopC || [0.25, 0.3, 0.32]);
+    fquad(signs, f, 0, base + sh - 0.55, 0.172, Math.min(f.len - 1.0, 4.6), 0.62, [1, 1, 1], [u0, v0, u1, v0, u1, v1, u0, v1]);
   }
 
   emitRoof(b, N.walls, N.roof, K, 0, false, N.trim);
   if (b.chimney) chimney(K, N, b);
 
   // partitions and furniture, described in local coordinates by the layout
+  const place = (m, lx, y, lz, rot, s, sy, sx) => {
+    if (!b.place) return;
+    const [x, , z] = K.W(lx, 0, lz);
+    b.place(m, x, y, z, b.rot + rot, s, sy, undefined, sx);
+  };
   for (const p of (b.parts || [])) {
     const yy = base + (p.y || 0);
+    if (p.kind === 'model') { place(p.m, p.x, yy, p.z, p.rot, p.s, p.sy, p.sx); continue; }
     if (p.kind === 'wall') {
       setTile(N.walls, FACADE.render, FACADE_TILE); N.walls.B = base;
       box(N.walls, p.x, yy + (p.h || sh) / 2, p.z, p.sx, p.h || sh, p.sz, inner);
       solidL(p.x - p.sx / 2, p.z - p.sz / 2, p.x + p.sx / 2, p.z + p.sz / 2, yy, yy + (p.h || sh));
     } else {
-      box(N.trim, p.x, yy + p.sy / 2, p.z, p.sx, p.sy, p.sz, p.col || [0.45, 0.36, 0.26]);
+      box(p.stand && b.standBuf ? b.standBuf : N.trim, p.x, yy + p.sy / 2, p.z, p.sx, p.sy, p.sz, p.col || [0.45, 0.36, 0.26]);
       if (p.solid !== false) solidL(p.x - p.sx / 2, p.z - p.sz / 2, p.x + p.sx / 2, p.z + p.sz / 2, yy, yy + p.sy, p.surf || 'wood');
     }
   }
   // ceiling lamps
+  // ceiling lights: fluorescent fittings (hanging lamps in the sheds); the
+  // flat panels stand in until the models arrive
   for (const lp of (b.lamps || [])) {
-    box(N.trim, lp.x, base + sh - 0.24, lp.z, 1.2, 0.06, 0.3, [0.9, 0.9, 0.86]);
+    box(b.place && b.standBuf ? b.standBuf : N.trim, lp.x, base + sh - 0.24, lp.z, 1.2, 0.06, 0.3, [0.9, 0.9, 0.86]);
+    if (b.kind === 'warehouse') place('hangingLamp', lp.x, base + sh - 0.2, lp.z, 0, 1.3);
+    else if (b.kind === 'house') place('ceilingLamp', lp.x, base + sh - 0.2 - 1.17, lp.z, 0, 1);
+    else place('tubeLight', lp.x, base + sh - 0.2, lp.z, Math.PI / 2, 1.2);
   }
   void DOOR_COLS; void AWNING;
 }

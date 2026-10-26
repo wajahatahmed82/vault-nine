@@ -11,6 +11,8 @@ import * as PR from './props.js';
 import { KindInstances, kind as modelKind, modelsReady } from './models.js';
 import { registerCars } from './cars.js';
 import { growTrees } from './trees.js';
+import { buildDecalAtlas, decalMaterial, decalUV, DECAL } from './towndecals.js';
+import { Grass } from './grass.js';
 
 // Meridian Ridge, the town below the station.
 //
@@ -209,66 +211,188 @@ function makeEnterable(b, type) {
   const P = [];
   const sh = b.sh;
   const wall = (x, z, sx, sz) => P.push({ kind: 'wall', x, z, sx, sz, h: sh });
-  const item = (x, z, sx, sy, sz, col, solid, y) => P.push({ x, z, sx, sy, sz, col, solid, y });
+  const item = (x, z, sx, sy, sz, col, solid, y) => { const it = { x, z, sx, sy, sz, col, solid, y }; P.push(it); return it; };
+  // a model (models.js kind) in the building's frame; `stand` marks an item
+  // box as the model's stand-in: its collider stays, its box is only drawn
+  // until the models arrive
+  const model = (m, x, z, rot = 0, s = 1, y = 0, sy = 1, sx = 1) => P.push({ kind: 'model', m, x, z, rot, s, y, sy, sx });
+  const stand = (it) => { it.stand = true; return it; };
+  // a counter: the carcass, a worktop proud of it on three sides, a plinth
+  const counter = (x, z, sx, sz, col, top) => {
+    item(x, z, sx, 0.94, sz, col);
+    item(x, z + 0.04, sx + 0.1, 0.05, sz + 0.1, top || [0.3, 0.24, 0.18], false, 0.94);
+    item(x, z + sz / 2 + 0.005, sx - 0.04, 0.09, 0.02, [0.12, 0.11, 0.1], false, 0);
+  };
   const WOOD = [0.45, 0.33, 0.22], METAL = [0.42, 0.44, 0.46], FAB = [0.32, 0.36, 0.42];
   const iw = w - 2 * T, id = d - 2 * T;
   switch (type) {
     case 'shop': case 'pharmacy': case 'hardware': case 'grocer': {
-      item(iw / 2 - 1.6, -id / 2 + 2.4, 2.2, 1.0, 0.7, WOOD);
-      for (let x = -iw / 2 + 1.2; x < iw / 2 - 3.6; x += 2.4) item(x, 0.8, 0.55, 1.8, id * 0.42, METAL);
+      const cx = iw / 2 - 1.6, cz = -id / 2 + 2.4;
+      counter(cx, cz, 2.2, 0.7, WOOD);
+      model('till', cx - 0.45, cz - 0.05, Math.PI, 1, 0.99);
+      model('notepads', cx + 0.5, cz, 0.3, 0.4, 0.99);
+      model('stool', cx + 0.3, cz - 0.85, 0.4);
+      const shelf = type === 'hardware' ? ['rack', 0.92, Math.PI / 2, 1] : type === 'grocer' ? ['shelves', 1.1, Math.PI / 2, 0.85] : ['displayShelves', 1.08, 0, 1.1];
+      for (let x = -iw / 2 + 1.2; x < iw / 2 - 3.6; x += 2.4) {
+        const L = id * 0.42;
+        stand(item(x, 0.8, 0.55, 1.8, L, METAL));
+        const n = Math.max(1, Math.round(L / shelf[1])), s = L / n / shelf[1];
+        for (let k = 0; k < n; k++) model(shelf[0], x, 0.8 - L / 2 + (k + 0.5) * L / n, shelf[2] + (k % 2) * Math.PI, s, 0, shelf[3] / s * 1.0);
+      }
       wall(-1.4, -id / 2 + 1.4, iw - 2.8, 0.15);
-      for (let k = 0; k < 4; k++) item(-iw / 2 + 0.8 + k * 0.9, -id / 2 + 0.6, 0.6, 0.6, 0.6, [0.55, 0.44, 0.3], false);
-      b.tagItem = { x: iw / 2 - 1.6, z: -id / 2 + 2.4 };
+      for (let k = 0; k < 4; k++) {
+        const x = -iw / 2 + 0.8 + k * 0.9, z = -id / 2 + 0.6;
+        stand(item(x, z, 0.6, 0.6, 0.6, [0.55, 0.44, 0.3], false));
+        model('box', x, z, k * 0.7, 1.4);
+        if (k % 2 === 0) model('box', x + 0.04, z, k * 0.7 + 1.4, 1.3, 0.47);
+      }
+      model('clock', 0, -id / 2 + 1.4 + 0.1, 0, 1.2, 2.35);
+      model('extinguisher', -iw / 2 + 0.35, id / 2 - 0.6, Math.PI / 2);
+      if (type === 'grocer') model('wetSign', -iw / 2 + 2.2, 1.0 + id * 0.21 + 0.6, 0.6);
+      b.tagItem = { x: cx, z: cz };
       break;
     }
     case 'diner': {
-      item(0, -id / 2 + 1.6, iw - 4, 1.05, 0.7, [0.7, 0.2, 0.16]);
-      for (let x = -iw / 2 + 2; x < iw / 2 - 2; x += 1.2) item(x, -id / 2 + 2.4, 0.38, 0.75, 0.38, METAL, false);
+      counter(0, -id / 2 + 1.6, iw - 4, 0.7, [0.7, 0.2, 0.16], [0.82, 0.8, 0.76]);
+      model('till', iw / 2 - 3, -id / 2 + 1.55, Math.PI, 1, 0.99);
+      for (let x = -iw / 2 + 2; x < iw / 2 - 2; x += 1.2) {
+        stand(item(x, -id / 2 + 2.4, 0.38, 0.75, 0.38, METAL, false));
+        model('stool', x, -id / 2 + 2.4, x);
+      }
       for (let x = -iw / 2 + 1.6; x < iw / 2 - 4.5; x += 3.0) {
-        item(x, id / 2 - 1.3, 1.2, 0.76, 0.8, [0.85, 0.82, 0.76]);
-        item(x - 0.95, id / 2 - 1.3, 0.5, 1.0, 0.9, [0.62, 0.16, 0.14]);
-        item(x + 0.95, id / 2 - 1.3, 0.5, 1.0, 0.9, [0.62, 0.16, 0.14]);
+        const z = id / 2 - 1.3;
+        stand(item(x, z, 1.2, 0.76, 0.8, [0.85, 0.82, 0.76]));
+        model('table', x, z, 0, 0.8, 0, 1, 0.62);
+        stand(item(x - 0.95, z, 0.5, 1.0, 0.9, [0.62, 0.16, 0.14]));
+        stand(item(x + 0.95, z, 0.5, 1.0, 0.9, [0.62, 0.16, 0.14]));
+        model('cafeChair', x - 0.85, z, Math.PI / 2);
+        model('cafeChair', x + 0.85, z, -Math.PI / 2);
+        model('hangingLamp', x, z, 0, 1, sh - 0.2);
       }
       wall(0, -id / 2 + 0.7, iw - 6, 0.15);
+      model('clock', -iw / 2 + 3.2, -id / 2 + 0.7 + 0.1, 0, 1.2, 2.4);
+      stand(item(iw / 2 - 2.4, -id / 2 + 0.95, 0.62, 1.3, 0.43, WOOD)); model('wallShelves', iw / 2 - 2.4, -id / 2 + 0.95, 0, 1.2);
       break;
     }
     case 'police': {
       wall(-2, id / 2 - 4.2, iw - 4, 0.15);
-      item(iw / 2 - 4.8, id / 2 - 4.9, 3, 1.1, 0.6, WOOD);
-      for (let k = 0; k < 4; k++) item(-iw / 2 + 2.5 + k * 3.4, -0.5, 1.6, 0.76, 0.9, WOOD);
+      const rx = iw / 2 - 4.8, rz = id / 2 - 4.9;
+      counter(rx, rz, 3, 0.6, WOOD);
+      model('notepads', rx - 0.6, rz, 0.1, 0.5, 0.99);
+      model('laptop', rx + 0.6, rz - 0.05, Math.PI, 0.9, 0.99);
+      model('officeChair', rx, rz - 0.95, 0);
+      for (let k = 0; k < 4; k++) {
+        const x = -iw / 2 + 2.5 + k * 3.4;
+        stand(item(x, -0.5, 1.6, 0.76, 0.9, WOOD));
+        model('desk', x, -0.5, 0, 1, 0, 0.96, 0.8);
+        model('officeChair', x + 0.2, -1.35, 0.2 * (k % 2 ? 1 : -1));
+        if (k % 2 === 0) model('laptop', x - 0.25, -0.55, Math.PI, 0.9, 0.76);
+        else model('notepads', x, -0.5, k, 0.45, 0.76);
+      }
+      const fx = iw / 2 - 0.55;
+      if (fx - 0.3 > -iw / 2 + 2.5 + 3 * 3.4 + 0.8 + 0.7) for (const z of [-1.4, -0.2]) { stand(item(fx, z, 0.45, 1.65, 1.03, METAL)); model('filing', fx, z, -Math.PI / 2, 0.9); }
       for (let k = 0; k < 3; k++) {
         const x = -iw / 2 + 1.8 + k * 3.0;
         wall(x + 1.5, -id / 2 + 1.6, 0.15, 3.2);
         for (let bx = -1.2; bx <= 1.2; bx += 0.3) item(x + bx, -id / 2 + 3.2, 0.05, 2.4, 0.05, METAL, false);
+        // a cot along the back of each cell
+        stand(item(x, -id / 2 + 0.55, 1.8, 0.45, 0.7, [0.3, 0.3, 0.32]));
+        model('bench', x, -id / 2 + 0.55, 0, 1.15);
       }
+      model('clock', 0, id / 2 - 4.2 + 0.1, 0, 1.2, 2.4);
+      model('extinguisher', iw / 2 - 0.35, id / 2 - 0.6, -Math.PI / 2);
       b.tagItem = { x: -iw / 2 + 2.5, z: -0.5 };
       break;
     }
     case 'townhall': {
-      for (let row = 0; row < 5; row++) for (const sx of [-1, 1]) item(sx * 4.2, id / 2 - 6 - row * 1.6, 5, 0.45, 0.5, WOOD);
+      for (let row = 0; row < 5; row++) for (const sx of [-1, 1]) {
+        const z = id / 2 - 6 - row * 1.6;
+        stand(item(sx * 4.2, z, 5, 0.45, 0.5, WOOD));
+        for (let i = 0; i < 7; i++) model('chair', sx * 4.2 - 2.1 + i * 0.7, z, Math.PI);
+      }
+      // the dais: a stepped platform with a nosing, a table and three seats
       item(0, -id / 2 + 2.2, 6, 0.9, 1.2, WOOD);
+      item(0, -id / 2 + 2.2 + 0.02, 6.1, 0.05, 1.26, [0.32, 0.23, 0.15], false, 0.9);
+      item(0, -id / 2 + 2.2 + 0.75, 6, 0.3, 0.3, WOOD, true, 0);
+      model('table', 0, -id / 2 + 2.3, 0, 0.75, 0.9, 1, 0.9);
+      for (const x of [-0.7, 0, 0.7]) model('kitchenChair', x, -id / 2 + 1.9, 0, 1, 0.9);
+      for (const x of [-2.6, 2.6]) { stand(item(x, -id / 2 + 0.6, 1.38, 2.0, 0.58, WOOD)); model('bookshelf', x, -id / 2 + 0.6, 0, 1, 0); }
       wall(-iw / 2 + 4.5, -2, 0.15, id - 8);
-      item(-iw / 2 + 2, -id / 2 + 2, 1.6, 0.76, 0.9, WOOD);
+      stand(item(-iw / 2 + 2, -id / 2 + 2, 1.6, 0.76, 0.9, WOOD));
+      model('desk', -iw / 2 + 2, -id / 2 + 2, 0, 1, 0, 0.96, 0.8);
+      model('officeChair', -iw / 2 + 2, -id / 2 + 2.85, Math.PI + 0.3);
+      model('laptop', -iw / 2 + 1.7, -id / 2 + 2.05, 0, 0.9, 0.76);
+      stand(item(-iw / 2 + 0.55, -id / 2 + 3.6, 0.45, 1.65, 1.03, METAL));
+      model('filing', -iw / 2 + 0.55, -id / 2 + 3.6, Math.PI / 2, 0.9);
+      // on the office's outer wall, clear of the way round the desk
+      stand(item(-iw / 2 + 0.3, -id / 2 + 6.2, 0.52, 1.85, 1.24, WOOD));
+      model('bookshelf', -iw / 2 + 0.3, -id / 2 + 6.2, Math.PI / 2, 0.9);
+      model('clock', 0, id / 2 - 0.35, Math.PI, 1.6, 3.0);
       b.tagItem = { x: -iw / 2 + 2, z: -id / 2 + 2 };
       break;
     }
     case 'house': {
       wall(-iw / 4 - 0.5, -0.3, iw / 2 - 1, 0.15);
-      item(-iw / 2 + 1.2, id / 2 - 1.8, 0.9, 0.8, 2.0, FAB);
-      item(iw / 4, id / 2 - 2.2, 1.4, 0.76, 0.9, WOOD);
-      item(-iw / 2 + 0.4, -id / 2 + 1.8, 0.6, 0.9, 3, [0.8, 0.8, 0.78]);
-      b.tagItem = { x: iw / 4, z: id / 2 - 2.2 };
+      const sx0 = -iw / 2 + 1.2, sz0 = id / 2 - 1.8;
+      stand(item(sx0, sz0, 0.9, 0.8, 2.0, FAB));
+      model('sofa', sx0 - 0.05, sz0, Math.PI / 2, 1.2);
+      model('coffeeTable', sx0 + 1.3, sz0, Math.PI / 2, 0.75);
+      stand(item(sx0 + 3.2, sz0, 0.55, 0.5, 1.02, WOOD));
+      model('cupboard', sx0 + 3.2, sz0, -Math.PI / 2, 0.85, 0, 0.5);
+      model('tv', sx0 + 3.15, sz0, -Math.PI / 2, 1.3, 0.5);
+      const tx = iw / 4, tz = id / 2 - 2.2;
+      stand(item(tx, tz, 1.4, 0.76, 0.9, WOOD));
+      model('table', tx, tz, 0, 0.8, 0, 1, 0.73);
+      model('kitchenChair', tx - 0.85, tz, Math.PI / 2);
+      model('kitchenChair', tx + 0.85, tz, -Math.PI / 2);
+      model('kitchenChair', tx, tz - 0.75, 0.1);
+      const kx = -iw / 2 + 0.4, kz = -id / 2 + 1.8;
+      stand(item(kx, kz, 0.6, 0.9, 3, [0.8, 0.8, 0.78]));
+      model('cupboard', kx - 0.05, kz - 0.75, Math.PI / 2, 1, 0, 0.8);
+      model('cupboard', kx - 0.05, kz + 0.75, Math.PI / 2, 1, 0, 0.8);
+      stand(item(kx - 0.1, kz - 1.9, 0.4, 1.1, 0.55, WOOD));
+      model('wallShelves', kx - 0.1, kz - 1.9, Math.PI / 2);
+      model('pot', kx, kz + 0.4, 0, 1.2, 0.94);
+      b.tagItem = { x: tx, z: tz };
       break;
     }
     case 'kiosk': {
-      item(-iw / 2 + 1.6, 0.6, 2.4, 1.0, 0.7, WOOD);
-      for (let x = 0.5; x < iw / 2 - 1; x += 1.6) item(x, -id / 2 + 1, 0.5, 1.6, id * 0.4, METAL);
+      counter(-iw / 2 + 1.6, 0.6, 2.4, 0.7, WOOD);
+      model('till', -iw / 2 + 1.2, 0.55, -Math.PI / 2 + Math.PI, 1, 0.99);
+      for (let x = 0.5; x < iw / 2 - 1; x += 1.6) {
+        const L = id * 0.4, z = -id / 2 + 1;
+        stand(item(x, z, 0.5, 1.6, L, METAL));
+        const n = Math.max(1, Math.round(L / 0.52));
+        for (let k = 0; k < n; k++) model('wallShelves', x, z - L / 2 + (k + 0.5) * L / n, Math.PI / 2, 1, 0, 1.4);
+      }
       b.tagItem = { x: -iw / 2 + 1.6, z: 0.6 };
       break;
     }
     case 'warehouse': {
-      for (let x = -iw / 2 + 3; x < iw / 2 - 3; x += 5) item(x, -id / 4, 1.2, 4.2, id * 0.4, [0.5, 0.36, 0.18]);
-      for (let k = 0; k < 6; k++) item(-iw / 2 + 3 + k * 2.4, id / 2 - 4, 1.2, 1.0, 1.2, [0.55, 0.44, 0.3]);
+      for (let x = -iw / 2 + 3; x < iw / 2 - 3; x += 5) {
+        const L = id * 0.4;
+        stand(item(x, -id / 4, 1.2, 4.2, L, [0.5, 0.36, 0.18]));
+        const n = Math.max(1, Math.round(L / 1.32));
+        for (let k = 0; k < n; k++) {
+          const z = -id / 4 - L / 2 + (k + 0.5) * L / n;
+          model('shelves', x, z, Math.PI / 2, 1.2, 0, 1.6);
+          if ((k + Math.round(x)) % 3 === 0) model('box', x, z, k, 1.4, 0.04);
+        }
+      }
+      for (let k = 0; k < 6; k++) {
+        const x = -iw / 2 + 3 + k * 2.4, z = id / 2 - 4;
+        stand(item(x, z, 1.2, 1.0, 1.2, [0.55, 0.44, 0.3]));
+        if (k % 3 === 2) for (const [dx, dz] of [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]]) model(k % 2 ? 'barrelB' : 'barrel', x + dx, z + dz, dx * 5);
+        else for (const dz of [-0.29, 0.29]) { model('crate', x, z + dz, 0, 1.45); model('crate', x, z + dz, 0.05, 1.45, 0.51); }
+      }
+      stand(item(-iw / 2 + 1.2, id / 2 - 1.6, 0.85, 0.6, 0.6, METAL)); model('generator', -iw / 2 + 1.2, id / 2 - 1.6, 0.2);
+      for (const dz of [-2.6, -3.05, -3.5]) { stand(item(-iw / 2 + 0.4, id / 2 + dz, 0.36, 0.56, 0.36, METAL)); model('propane', -iw / 2 + 0.4, id / 2 + dz, dz); }
+      for (let k = 0; k < 3; k++) model('plasticCrate', iw / 2 - 0.5, -id / 2 + 1.0, Math.PI / 2, 1.2, k * 0.33);
+      stand(item(iw / 2 - 0.5, -id / 2 + 1.0, 0.36, 1.0, 0.6, [0.3, 0.4, 0.5]));
+      stand(item(iw / 2 - 1.1, -id / 2 + 2.3, 0.85, 0.32, 0.58, [0.3, 0.33, 0.25])); model('crateLoot', iw / 2 - 1.1, -id / 2 + 2.3, 0);
+      stand(item(iw / 2 - 1.2, id / 2 - 1.5, 1.26, 0.95, 0.76, METAL)); model('toolCart', iw / 2 - 1.2, id / 2 - 1.5, Math.PI);
+      stand(item(iw / 2 - 0.5, id / 2 - 3.2, 0.4, 0.65, 0.68, METAL)); model('toolChest', iw / 2 - 0.5, id / 2 - 3.2, -Math.PI / 2);
+      model('extinguisher', -iw / 2 + 0.35, id / 2 - 0.6, Math.PI / 2);
       b.tagItem = { x: 0, z: id / 2 - 6 };
       break;
     }
@@ -517,8 +641,10 @@ function depthsFor(relief, table) {
 
 export function buildTown(scene, mats) {
   const t0 = performance.now();
-  registerCars();
-  growTrees();
+  const phase = {}; let tp = t0;
+  const lap = (k) => { const t = performance.now(); phase[k] = Math.round(t - tp); tp = t; };
+  registerCars(); lap('cars');
+  growTrees(); lap('trees');
   const blocks = makeBlocks();
 
   const arr = { facade: buildFacadeArray(), roof: buildRoofArray(), ground: buildGroundArray() };
@@ -532,13 +658,14 @@ export function buildTown(scene, mats) {
     signs: signMaterial(atlas),
     ground: arrayMaterial(arr.ground, { wetLayer: GROUND.asphalt, depths: depthsFor(GROUND_RELIEF, GROUND_TILE) }),
     foliage: foliageMaterial(),
+    decal: decalMaterial(buildDecalAtlas()),
   };
   const texMs = Math.round(performance.now() - t0);
 
   const newBufs = () => ({
     walls: new GeoBuf({ layer: true, base: true }), roof: new GeoBuf({ layer: true, base: true }),
     trim: new GeoBuf(), glass: new GeoBuf({ win: true }), signs: new GeoBuf(), clear: new GeoBuf(),
-    props: new GeoBuf(),
+    props: new GeoBuf(), decal: new GeoBuf(),
   });
   const chunks = new Map();
   const chunkOf = (x, z) => {
@@ -582,12 +709,13 @@ export function buildTown(scene, mats) {
     const c = chunkOf(x, z);
     return {
       walls: c.near.walls, trim: c.near.trim, glass: c.near.glass, foliage: foliageOf(x, z), ground: c.ground,
-      props: c.near.props,
-      place: (kind, px, py, pz, rot, s, sy, col) => c.placements.push({ kind, x: px, y: py, z: pz, rot, s, sy, col }),
+      props: c.near.props, decal: c.near.decal,
+      place: (kind, px, py, pz, rot, s, sy, col, sx) => c.placements.push({ kind, x: px, y: py, z: pz, rot, s, sy, col, sx }),
     };
   };
   const lotH = (x, z) => terrainH(x, z) + LOT_RAISE;
 
+  lap('textures');
   // ---- buildings and block props ----
   for (const blk of blocks) {
     const { buildings: bl, props } = layoutBlock(blk, ctx);
@@ -596,6 +724,7 @@ export function buildTown(scene, mats) {
       buildings.push(b);
       if (b.enter) {
         b.cols = colliders;
+        const PP = P(b.x, b.z); b.place = PP.place; b.standBuf = PP.props;
         emitBuilding(b, keep, null, keep.signs);
         indoor.push({ minX: b.x - b.ww / 2, maxX: b.x + b.ww / 2, minZ: b.z - b.wd / 2, maxZ: b.z + b.wd / 2,
                       y0: b.base - 0.5, y1: b.base + b.sh, b });
@@ -603,6 +732,7 @@ export function buildTown(scene, mats) {
         for (const lp of b.lamps) lamps.push({ x: b.x + lp.x * cs + lp.z * sn, y: b.base + b.sh - 0.3, z: b.z - lp.x * sn + lp.z * cs, kind: 'indoor' });
         continue;
       }
+      b.place = P(b.x, b.z).place;
       emitBuilding(b, c.near, far, c.near.signs);
       const x1 = b.x - b.ww / 2, x2 = b.x + b.ww / 2, z1 = b.z - b.wd / 2, z2 = b.z + b.wd / 2;
       const top = b.base + b.H;
@@ -619,6 +749,7 @@ export function buildTown(scene, mats) {
     dressPavements(blk, P, solid, lotH, lamps, wires, ctx, r);
   }
 
+  lap('buildings');
   // ---- streets ----
   for (const s of STREETS) {
     for (let a = s.from; a < s.to - 0.01; a = Math.min(s.to, (Math.floor(a / CHUNK) + 1) * CHUNK)) {
@@ -630,8 +761,10 @@ export function buildTown(scene, mats) {
     }
   }
   dressStreets(P, solid, glows, ctx, r);
+  roadWear(P, rng(5309));
   scatterTrees(blocks, P, solid, r);
 
+  lap('streets');
   // ---- meshes ----
   const group = new THREE.Group();
   group.name = 'town';
@@ -652,6 +785,7 @@ export function buildTown(scene, mats) {
       const m = mk(c.near[k], mat[k], cast); if (m) c.detail.add(m);
     }
     c.standIn = mk(c.near.props, mat.trim, true); if (c.standIn) c.detail.add(c.standIn);
+    const dm = mk(c.near.decal, mat.decal, false); if (dm) { dm.renderOrder = 1; c.detail.add(dm); }
     const gm = mk(c.ground, mat.ground, false); if (gm) c.baseG.add(gm);
     group.add(c.detail, c.baseG);
     c.near = c.keep = c.ground = c.road = c.foliage = null;
@@ -662,6 +796,7 @@ export function buildTown(scene, mats) {
     const m = mk(keep[k], mat[k], cast); if (m) keepG.add(m);
   }
   const cl = mk(keep.clear, mat.clear, false); if (cl) { cl.renderOrder = 2; keepG.add(cl); }
+  const kd = mk(keep.decal, mat.decal, false); if (kd) { kd.renderOrder = 1; keepG.add(kd); }
   group.add(keepG);
   const foliageG = new THREE.Group();
   foliageG.name = 'foliage';
@@ -763,7 +898,7 @@ export function buildTown(scene, mats) {
       const cs = Math.cos(b.rot), sn = Math.sin(b.rot);
       return new THREE.Vector3(b.x + lx * cs + lz * sn, b.base + ly, b.z - lx * sn + lz * cs);
     },
-    update(cam, dist) {
+    update(cam, dist, dir) {
       const d = dist === undefined ? this.detailDist : dist;
       const d2 = d * d;
       for (const c of this.chunks) {
@@ -771,11 +906,15 @@ export function buildTown(scene, mats) {
         const dz = Math.max(c.minZ - cam.z, 0, cam.z - c.maxZ);
         c.detail.visible = dx * dx + dz * dz < d2;
       }
-      if (this.kindSets) for (const ks of this.kindSets.values()) ks.update(cam, d === Infinity ? 'all' : false);
+      if (this.kindSets) for (const ks of this.kindSets.values()) ks.update(cam, d === Infinity ? 'all' : false, dir);
+      if (this.grass) this.grass.update(cam);
     },
   };
   town.attachModels();   // the generated cars; the scans follow when loaded
+  town.grass = new Grass(town, colliders, town.group);
+  lap('meshes');
   town.buildMs = Math.round(performance.now() - t0);
+  town.buildPhases = phase;
   // CC0 photo textures (docs/assets/mat) replace their procedural layers once
   // fetched and decoded, during the menu. If they fail the procedural ones stay.
   town.cc0Ready = applyCC0(arr).then((n) => { town.cc0Applied = n; return n; })
@@ -810,11 +949,30 @@ function emitProp(p, P, solid, H, ctx, r) {
   switch (p.type) {
     case 'canopy': {
       const N = at(p.x, p.z), y = H(p.x, p.z);
-      N.trim.box(p.x, y + p.h + 0.35, p.z, p.w, 0.7, p.d, 1, 0, [0.86, 0.86, 0.84]);
-      N.trim.box(p.x, y + p.h + 0.35, p.z, p.w + 0.1, 0.25, p.d + 0.1, 1, 0, [0.7, 0.14, 0.12]);
+      // deck: a white fascia with a red band and a thin white rule, top and
+      // bottom trims, then a soffit of panels with rows of light boxes
+      const top = y + p.h;
+      N.trim.box(p.x, top + 0.35, p.z, p.w, 0.7, p.d, 1, 0, [0.86, 0.86, 0.84]);
+      N.trim.box(p.x, top + 0.38, p.z, p.w + 0.1, 0.26, p.d + 0.1, 1, 0, [0.7, 0.14, 0.12]);
+      N.trim.box(p.x, top + 0.38, p.z, p.w + 0.12, 0.03, p.d + 0.12, 1, 0, [0.92, 0.92, 0.9]);
+      N.trim.box(p.x, top + 0.73, p.z, p.w + 0.16, 0.06, p.d + 0.16, 1, 0, [0.62, 0.62, 0.6]);
+      N.trim.box(p.x, top + 0.02, p.z, p.w + 0.14, 0.05, p.d + 0.14, 1, 0, [0.55, 0.55, 0.53]);
+      for (let gx = -p.w / 2 + 1.2; gx < p.w / 2 - 0.6; gx += 1.2) N.trim.box(p.x + gx, top - 0.01, p.z, 0.04, 0.04, p.d - 0.2, 1, 0, [0.6, 0.6, 0.58]);
+      for (let gz = -p.d / 2 + 2; gz < p.d / 2 - 1; gz += 4) {
+        for (const lx of [-p.w / 4, p.w / 4]) {
+          N.trim.box(p.x + lx, top - 0.03, p.z + gz, 1.2, 0.05, 0.6, 1, 0, [0.95, 0.95, 0.92]);
+          N.trim.box(p.x + lx, top - 0.01, p.z + gz, 1.3, 0.03, 0.7, 1, 0, [0.3, 0.3, 0.3]);
+        }
+      }
       for (const [dx, dz] of [[-p.w / 2 + 1, -p.d / 2 + 1.5], [p.w / 2 - 1, -p.d / 2 + 1.5], [-p.w / 2 + 1, p.d / 2 - 1.5], [p.w / 2 - 1, p.d / 2 - 1.5]]) {
-        N.trim.box(p.x + dx, y + p.h / 2, p.z + dz, 0.4, p.h, 0.4, 1, 0, [0.82, 0.82, 0.8]);
-        solid(p.x + dx - 0.2, p.z + dz - 0.2, p.x + dx + 0.2, p.z + dz + 0.2, y - 0.5, y + p.h, 'metal');
+        const cx = p.x + dx, cz = p.z + dz;
+        N.trim.box(cx, y + p.h / 2, cz, 0.4, p.h, 0.4, 1, 0, [0.82, 0.82, 0.8]);
+        N.trim.box(cx, y + 0.45, cz, 0.56, 0.9, 0.56, 1, 0, [0.7, 0.14, 0.12]);      // crash guard, painted
+        N.trim.box(cx, y + 0.92, cz, 0.6, 0.06, 0.6, 1, 0, [0.9, 0.9, 0.88]);
+        N.trim.box(cx, top - 0.12, cz, 0.56, 0.18, 0.56, 1, 0, [0.62, 0.62, 0.6]);  // capital
+        for (const k of [1.6, 3.0, 4.2]) N.trim.box(cx, y + k, cz, 0.42, 0.02, 0.42, 1, 0, [0.6, 0.6, 0.58]);   // cladding joints
+        solid(cx - 0.28, cz - 0.28, cx + 0.28, cz + 0.28, y - 0.5, y + 0.95, 'metal');
+        solid(cx - 0.2, cz - 0.2, cx + 0.2, cz + 0.2, y - 0.5, y + p.h, 'metal');
       }
       solid(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, y + p.h, y + p.h + 0.7, 'metal');
       ctx.spots.canopyLights = { x: p.x, y: y + p.h - 0.05, z: p.z, w: p.w, d: p.d };
@@ -823,8 +981,20 @@ function emitProp(p, P, solid, H, ctx, r) {
     case 'pump': {
       const N = at(p.x, p.z), y = H(p.x, p.z);
       N.trim.box(p.x, y + 0.15, p.z, 1.4, 0.3, 3.4, 1, 0, [0.6, 0.6, 0.58]);
-      N.trim.box(p.x, y + 1.1, p.z, 0.7, 1.6, 1.0, 1, 0, [0.72, 0.18, 0.14]);
-      N.trim.box(p.x, y + 1.5, p.z, 0.72, 0.4, 0.8, 1, 0, [0.9, 0.9, 0.88]);
+      N.trim.box(p.x, y + 0.42, p.z, 0.78, 0.24, 1.08, 1, 0, [0.2, 0.2, 0.21]);
+      N.trim.box(p.x, y + 1.12, p.z, 0.7, 1.2, 1.0, 1, 0, [0.72, 0.18, 0.14]);
+      N.trim.box(p.x, y + 1.86, p.z, 0.74, 0.3, 1.04, 1, 0, [0.9, 0.9, 0.88]);
+      N.trim.box(p.x, y + 2.05, p.z, 0.62, 0.08, 0.9, 1, 0, [0.72, 0.18, 0.14]);
+      for (const sx of [-1, 1]) {
+        N.trim.box(p.x + sx * 0.36, y + 1.45, p.z, 0.02, 0.32, 0.5, 1, 0, [0.08, 0.1, 0.12]);   // display
+        N.trim.box(p.x + sx * 0.37, y + 1.2, p.z + 0.32, 0.06, 0.2, 0.08, 1, 0, [0.12, 0.12, 0.12]);   // nozzle
+        for (let k = 0; k < 6; k++) {   // the hose hanging in a loop
+          const a0 = k / 6 * Math.PI, a1 = (k + 1) / 6 * Math.PI;
+          const h0 = [p.x + sx * (0.38 + Math.sin(a0) * 0.12), y + 1.15 - Math.sin(a0) * 0.55, p.z + 0.3 - k * 0.02];
+          const h1 = [p.x + sx * (0.38 + Math.sin(a1) * 0.12), y + 1.15 - Math.sin(a1) * 0.55, p.z + 0.3 - (k + 1) * 0.02];
+          N.trim.box((h0[0] + h1[0]) / 2, (h0[1] + h1[1]) / 2, (h0[2] + h1[2]) / 2, 0.04, Math.hypot(h1[0] - h0[0], h1[1] - h0[1]) + 0.02, 0.04, 1, 0, [0.08, 0.08, 0.08]);
+        }
+      }
       solid(p.x - 0.35, p.z - 0.5, p.x + 0.35, p.z + 0.5, y - 0.5, y + 1.9, 'metal');
       break;
     }
@@ -845,13 +1015,25 @@ function emitProp(p, P, solid, H, ctx, r) {
       break;
     }
     case 'memorial': {
+      // three stone steps, a pedestal with a moulded cornice, a tapering
+      // obelisk with its pyramid cap, a bronze plaque on each face
       const N = at(p.x, p.z), y = H(p.x, p.z);
-      const stone = [0.56, 0.54, 0.5];
-      N.trim.box(p.x, y + 0.3, p.z, 5, 0.6, 5, 1, 0, stone);
-      N.trim.box(p.x, y + 1.1, p.z, 2.6, 1.0, 2.6, 1, 0, stone);
-      N.trim.box(p.x, y + 4.6, p.z, 1.0, 6.0, 1.0, 1, 0, stone);
-      N.trim.box(p.x, y + 7.75, p.z, 0.5, 0.5, 0.5, 1, 0, stone);
-      N.trim.box(p.x, y + 1.15, p.z + 1.31, 1.6, 0.5, 0.02, 1, 0, [0.4, 0.34, 0.2]);
+      const W = N.walls, stone = [0.96, 0.95, 0.92];
+      W.L = FACADE.stoneGrey; tile(W, FACADE_TILE, FACADE.stoneGrey); W.B = y;
+      for (let k = 0; k < 3; k++) W.box(p.x, y + 0.1 + k * 0.2, p.z, 5 - k * 0.7, 0.2, 5 - k * 0.7, 1, 0, stone);
+      W.box(p.x, y + 1.15, p.z, 2.3, 1.1, 2.3, 1, 0, stone);
+      N.trim.box(p.x, y + 0.66, p.z, 2.55, 0.1, 2.55, 1, 0, [0.62, 0.6, 0.56]);
+      N.trim.box(p.x, y + 1.74, p.z, 2.6, 0.12, 2.6, 1, 0, [0.62, 0.6, 0.56]);
+      N.trim.box(p.x, y + 1.84, p.z, 2.4, 0.08, 2.4, 1, 0, [0.6, 0.58, 0.54]);
+      W.L = FACADE.stone; tile(W, FACADE_TILE, FACADE.stone);
+      const b0 = 0.55, b1 = 0.32, y0 = y + 1.88, y1 = y + 7.4;
+      const c = (sx, sz, h, yy) => [p.x + sx * h, yy, p.z + sz * h];
+      for (const [ax, az, bx, bz, ox, oz] of [[-1, 1, 1, 1, 0, 1], [1, 1, 1, -1, 1, 0], [1, -1, -1, -1, 0, -1], [-1, -1, -1, 1, -1, 0]]) {
+        W.quad(c(ax, az, b0, y0), c(bx, bz, b0, y0), c(bx, bz, b1, y1), c(ax, az, b1, y1), [ox, 0.05, oz], stone,
+          [0, 0, 1.1, 0, 1.0, 5.5, 0.1, 5.5]);
+        W.tri(c(ax, az, b1, y1), c(bx, bz, b1, y1), [p.x, y1 + 0.55, p.z], [ox, 0.6, oz], stone);
+        N.trim.box(p.x + ox * 1.16, y + 1.18, p.z + oz * 1.16, oz ? 1.3 : 0.03, 0.55, oz ? 0.03 : 1.3, 1, 0, [0.36, 0.3, 0.17]);
+      }
       solid(p.x - 2.5, p.z - 2.5, p.x + 2.5, p.z + 2.5, y - 0.5, y + 0.6, 'masonry');
       solid(p.x - 1.3, p.z - 1.3, p.x + 1.3, p.z + 1.3, y - 0.5, y + 1.6, 'masonry');
       solid(p.x - 0.5, p.z - 0.5, p.x + 0.5, p.z + 0.5, y - 0.5, y + 8.0, 'masonry');
@@ -859,7 +1041,8 @@ function emitProp(p, P, solid, H, ctx, r) {
     }
     case 'planter': {
       const N = at(p.x, p.z), y = H(p.x, p.z);
-      N.trim.box(p.x, y + 0.3, p.z, 3.0, 0.6, 1.4, 1, 0, [0.6, 0.59, 0.56]);
+      N.props.box(p.x, y + 0.3, p.z, 3.0, 0.6, 1.4, 1, 0, [0.6, 0.59, 0.56]);
+      N.place('planter', p.x, y, p.z, 0, 2.6, 0.58, 1.18);
       N.foliage.B = y; N.foliage.box(p.x, y + 0.66, p.z, 2.7, 0.14, 1.1, 1, 0, [0.22, 0.3, 0.14]);
       for (const dx of [-0.8, 0, 0.8]) N.place('bush', p.x + dx, y + 0.6, p.z, dx * 2.1, 0.45);
       solid(p.x - 1.5, p.z - 0.7, p.x + 1.5, p.z + 0.7, y - 0.5, y + 0.6, 'masonry');
@@ -874,6 +1057,8 @@ function emitProp(p, P, solid, H, ctx, r) {
       N.trim.box(p.x - 0.7, y + 1.3, p.z, 0.05, 2.2, 3.8, 1, 0, [0.4, 0.46, 0.48]);
       for (const dz of [-1.9, 1.9]) N.trim.box(p.x - 0.7, y + 1.25, p.z + dz, 0.1, 2.5, 0.1, 1, 0, metal);
       N.trim.box(p.x - 0.3, y + 0.45, p.z, 0.4, 0.06, 2.4, 1, 0, [0.45, 0.33, 0.22]);
+      N.trim.box(p.x, y + 2.42, p.z, 1.7, 0.18, 4.1, 1, 0, [0.22, 0.24, 0.25]);   // roof fascia
+      N.place('bench', p.x - 0.3, y, p.z, Math.PI / 2, 1.4);
       solid(p.x - 0.75, p.z - 2, p.x - 0.65, p.z + 2, y - 0.5, y + 2.5, 'glass');
       break;
     }
@@ -883,7 +1068,21 @@ function emitProp(p, P, solid, H, ctx, r) {
       for (let s = 0; s < p.stack; s++) {
         const col = cols[Math.floor(Math.abs(p.x * 7 + p.z * 3 + s * 5)) % cols.length];
         N.walls.L = FACADE.corrugated; tile(N.walls, FACADE_TILE, FACADE.corrugated); N.walls.B = -1000;
-        N.walls.box(p.x, y + 1.3 + s * 2.6, p.z, 6.0, 2.6, 2.45, 0, 1, col);
+        const yy = y + 1.3 + s * 2.6;
+        N.walls.box(p.x, yy, p.z, 6.0, 2.56, 2.36, 0, 1, col);
+        // frame: corner posts, top and bottom rails, corner castings
+        const dark = [col[0] * 0.55, col[1] * 0.55, col[2] * 0.55];
+        for (const dx of [-1.2, 1.2]) for (const dz of [-2.97, 2.97]) {
+          N.trim.box(p.x + dx, yy, p.z + dz, 0.1, 2.6, 0.1, 1, 0, dark);
+          for (const dy of [-1.24, 1.24]) N.trim.box(p.x + dx, yy + dy, p.z + dz, 0.18, 0.12, 0.18, 1, 0, [0.2, 0.2, 0.2]);
+        }
+        for (const dy of [-1.25, 1.25]) for (const dx of [-1.21, 1.21]) N.trim.box(p.x + dx, yy + dy, p.z, 0.08, 0.1, 5.9, 1, 0, dark);
+        // doors on the +z end: seam, four locking bars with handles
+        N.trim.box(p.x, yy, p.z + 3.0, 0.03, 2.4, 0.02, 1, 0, dark);
+        for (const dx of [-0.85, -0.35, 0.35, 0.85]) {
+          N.trim.box(p.x + dx, yy, p.z + 3.02, 0.04, 2.4, 0.04, 1, 0, [0.5, 0.5, 0.5]);
+          N.trim.box(p.x + dx + 0.06, yy - 0.2, p.z + 3.05, 0.1, 0.05, 0.05, 1, 0, [0.5, 0.5, 0.5]);
+        }
       }
       solid(p.x - 1.25, p.z - 3, p.x + 1.25, p.z + 3, y - 0.5, y + 2.6 * p.stack, 'metal');
       break;
@@ -950,9 +1149,18 @@ function emitProp(p, P, solid, H, ctx, r) {
             N.walls.L = FACADE.concrete; tile(N.walls, FACADE_TILE, FACADE.concrete); N.walls.B = y;
             N.walls.box(mx, y + h / 2 - 0.2, mz, horiz ? seg : 0.25, h + 0.4, horiz ? 0.25 : seg, 1, 0, [0.9, 0.88, 0.84]);
           } else {
-            N.trim.box(x0, y + h / 2, z0, 0.1, h, 0.1, 1, 0, [0.4, 0.42, 0.44]);
-            N.trim.box(mx, y + h - 0.05, mz, horiz ? seg : 0.05, 0.05, horiz ? 0.05 : seg, 1, 0, [0.4, 0.42, 0.44]);
-            N.trim.box(mx, y + h / 2, mz, horiz ? seg : 0.02, h - 0.2, horiz ? 0.02 : seg, 1, 0, [0.34, 0.36, 0.36]);
+            const B = N.props;
+            B.box(x0, y + h / 2, z0, 0.1, h, 0.1, 1, 0, [0.4, 0.42, 0.44]);
+            B.box(mx, y + h - 0.05, mz, horiz ? seg : 0.05, 0.05, horiz ? 0.05 : seg, 1, 0, [0.4, 0.42, 0.44]);
+            B.box(mx, y + h / 2, mz, horiz ? seg : 0.02, h - 0.2, horiz ? 0.02 : seg, 1, 0, [0.34, 0.36, 0.36]);
+            // chain-link panels (1.9 m in the scan) stretched to fill the segment
+            const k = Math.max(1, Math.round(seg / 1.9));
+            for (let q = 0; q < k; q++) {
+              const t = (q + 0.5) / k;
+              const px = x0 + (x1 - x0) * t, pz = z0 + (z1 - z0) * t;
+              N.place('fencePanel', px, H(px, pz), pz, horiz ? 0 : Math.PI / 2, 1, h / 2.43, null, seg / (k * 1.9));
+            }
+            N.place('fencePost', x0, H(x0, z0), z0, 0, 1, h / 2.5);
           }
           solid(Math.min(x0, x1) - (horiz ? 0 : 0.12), Math.min(z0, z1) - (horiz ? 0.12 : 0),
                 Math.max(x0, x1) + (horiz ? 0 : 0.12), Math.max(z0, z1) + (horiz ? 0.12 : 0), y - 0.5, y + h,
@@ -965,6 +1173,28 @@ function emitProp(p, P, solid, H, ctx, r) {
 }
 
 // Front boundaries, driveways, cars and garden trees for a house.
+// Front-garden planting from the position alone (dressHouse's stream `r`
+// decides cars and trees that routes are tuned round): a shrub in the corner
+// away from the drive, clay pots either side of the front door.
+function gardenPlants(b, N, H, lineAt, doorT, drive, L) {
+  const h = (k) => PR.hash01(b.x, b.z, k);
+  if (h(1) < 0.75) {
+    const t = drive > doorT ? L.a0 + 1.4 : L.a1 - 1.4;
+    const [x, z] = lineAt(t, Math.max(1.2, L.setback * 0.55));
+    N.place(['shrubA', 'shrubB', 'shrubC', 'shrubD'][Math.floor(h(2) * 4)], x, H(x, z) - 0.05, z, h(3) * 6.28, 0.5 + h(4) * 0.2);
+  }
+  if (h(5) < 0.6) {
+    for (const e of [-1.35, 1.35]) {
+      const [x, z] = lineAt(doorT + e, L.setback - 0.35);
+      N.place(h(6) < 0.5 ? 'claypot' : 'pot', x, H(x, z), z, e, h(6) < 0.5 ? 1.7 : 2.2);
+    }
+  }
+  if (h(7) < 0.5) {
+    const [x, z] = lineAt(drive > doorT ? L.a0 + 0.7 : L.a1 - 0.7, 0.9);
+    N.place('fern', x, H(x, z), z, h(8) * 6.28, 0.8);
+  }
+}
+
 function dressHouse(b, P, solid, H, r) {
   const L = b.lot;
   const N = P(b.x, b.z);
@@ -1002,10 +1232,11 @@ function dressHouse(b, P, solid, H, r) {
     ? [[d0x - w2, d0z], [d0x + w2, d0z], [d1x + w2, d1z], [d1x - w2, d1z]]
     : [[d0x, d0z - w2], [d0x, d0z + w2], [d1x, d1z + w2], [d1x, d1z - w2]];
   G.quad(...dq.map(([x, z]) => [x, H(x, z) + 0.012, z]), [0, 1, 0], [1, 1, 1], dq.flatMap(([x, z]) => [x, z]));
+  gardenPlants(b, N, H, lineAt, doorT, drive, L);
   // parked well inside the gap, so the way in and out stays open
   if (driveFits && r() < 0.45) {
     const [cx, cz] = lineAt(drive, 3.7);
-    PR.car(N, solid, cx, H(cx, cz), cz, b.rot + (r() < 0.5 ? 0 : Math.PI), pick(r, PR.COLOURS.car));
+    PR.car(N, solid, cx, H(cx, cz), cz, b.rot + (r() < 0.5 ? 0 : Math.PI), pick(r, PR.COLOURS.car), { cover: PR.hash01(cx, cz, 11) < 0.3 });
   }
   if (r() < 0.55) {
     const [tx, tz] = lineAt(doorT + (drive > doorT ? -1 : 1) * 4.5, L.setback * 0.5);
@@ -1073,6 +1304,30 @@ function dressPavements(blk, P, solid, H, lamps, wires, ctx, r) {
       PR.manhole(P(x, z), x, y, z);
       ctx.spots.drains.push({ x, y: y + 0.1, z });
     }
+    // kerb drains in the gutter, one every 22-30 m (own stream: the shared
+    // one decides the parked cars that the routes are tuned round)
+    const rd = rng(Math.round(s.a0 * 31 + s.a1 * 7) + s.key.charCodeAt(0));
+    // a utility cabinet at the back of the pavement near one end
+    // (homes only: the yards and the main street are crossed on foot by the
+    // mission routes)
+    if (['res', 'res-edge', 'res-north', 'terrace'].includes(blk.kind) && s.pave >= 2 && rd() < 0.45) {
+      const t = rd() < 0.5 ? s.a0 + 2.2 : s.a1 - 2.2;
+      const [x, z] = s.at(t, s.pave - 0.3);
+      const y = terrainH(x, z) + 0.15, wide = rd() < 0.5;
+      const along = s.key === 'n' || s.key === 's', hw = wide ? 0.48 : 0.28;
+      const N = P(x, z);
+      N.props.box(x, y + 0.56, z, along ? hw * 2 : 0.46, 1.12, along ? 0.46 : hw * 2, 1, 0, [0.42, 0.45, 0.4]);
+      N.place(wide ? 'cabinetWide' : 'cabinet', x, y, z, s.rot, 1);
+      solid(x - (along ? hw : 0.23), z - (along ? 0.23 : hw), x + (along ? hw : 0.23), z + (along ? 0.23 : hw), y - 0.5, y + 1.12, 'metal');
+    }
+    for (let t = s.a0 + 7 + rd() * 6; t < s.a1 - 3; t += 22 + rd() * 8) {
+      const [x, z] = s.at(t, -0.32);
+      const D = P(x, z).decal, y = terrainH(x, z) + 0.088;
+      const along = s.key === 'n' || s.key === 's';
+      const hx = along ? 0.3 : 0.24, hz = along ? 0.24 : 0.3;
+      D.su = D.sv = 1;
+      D.quad([x - hx, y, z - hz], [x + hx, y, z - hz], [x + hx, y, z + hz], [x - hx, y, z + hz], [0, 1, 0], [1, 1, 1], decalUV(DECAL.grate));
+    }
     const n = busy ? 14 : 5;
     for (let k = 0; k < n; k++) {
       const [x, z] = s.at(s.a0 + r() * len, r() * (s.pave + 2) - 1.5);
@@ -1100,16 +1355,19 @@ function dressStreets(P, solid, glows, ctx, r) {
       if (Math.abs(z - 165) < 9 || Math.abs(z - 220) < 9 || Math.abs(z - 275) < 9 || Math.abs(z - 196) < 6 || Math.abs(z - 302) < 8) continue;
       if (r() > 0.45) continue;
       const x = side * 3.9;
-      PR.car(P(x, z), solid, x, T(x, z), z, side > 0 ? 0 : Math.PI, pick(r, PR.COLOURS.car));
+      // no vans on Main Street: their 2 m height closes the long sightlines
+      // the mission is built on (rooftop marksmen over the square)
+      PR.car(P(x, z), solid, x, T(x, z), z, side > 0 ? 0 : Math.PI, pick(r, PR.COLOURS.car), { noVan: true });
     }
   }
   // abandoned with its door open; leaves a lane a vehicle can get through
-  PR.car(P(-1.6, 236), solid, -1.6, T(-1.6, 236), 236, 0.15, PR.COLOURS.car[2], { doorOpen: true });
+  // (both hatchbacks: a longer body would close the lanes the truck uses)
+  PR.car(P(-1.6, 236), solid, -1.6, T(-1.6, 236), 236, 0.15, PR.COLOURS.car[2], { doorOpen: true, style: 'car_hatch' });
   PR.car(P(3.6, 150), solid, 3.6, T(3.6, 150), 150, -0.6, PR.COLOURS.car[1]);
   PR.car(P(-60, 166), solid, -60, T(-60, 166), 166, 1.2, PR.COLOURS.car[5], { doorOpen: true });
   PR.car(P(48, 248), solid, 48, T(48, 248), 248, 0.2, PR.COLOURS.car[6]);
   ctx.spots.burningCar = { x: 1.5, y: T(1.5, 206), z: 206 };
-  PR.car(P(1.5, 206), solid, 1.5, T(1.5, 206), 206, 2.6, [0.12, 0.11, 0.1]);
+  PR.car(P(1.5, 206), solid, 1.5, T(1.5, 206), 206, 2.6, [0.12, 0.11, 0.1], { style: 'car_hatch' });
   for (const [x, rot] of [[-2.6, 1.1], [2.4, -1.25]]) PR.car(P(x, 302), solid, x, T(x, 302), 302, rot, [0.1, 0.12, 0.18], { police: true });
   for (const x of [-4.2, 4.4]) PR.barrier(P(x, 297), solid, x, T(x, 297), 297, 0);
   for (let k = 0; k < 6; k++) PR.cone(P(-5 + k * 2, 295), -5 + k * 2, T(-5 + k * 2, 295), 295);
@@ -1139,6 +1397,28 @@ function dressStreets(P, solid, glows, ctx, r) {
     ctx.spots.spark = { x: x + 4.2, y: y + 0.3, z: z - 0.4, top: [x + 3.2, y + 7.2, z] };
   }
   void glows;
+}
+
+// Patched repairs, cracks and oil stains on the roads; dark tyre-polished
+// stains where cars park. Decals a few mm above the asphalt.
+function roadWear(P, r) {
+  for (const s of STREETS) {
+    const lift = (s.axis === 'x' ? 0.08 : 0.06) + 0.006;
+    const at = (t, o) => (s.axis === 'z' ? [s.at + o, t] : [t, s.at + o]);
+    for (let t = s.from + 4 + r() * 10; t < s.to - 4; t += 9 + r() * 16) {
+      const kind = r();
+      const cell = kind < 0.45 ? DECAL.patch : kind < 0.7 ? DECAL.oil : kind < 0.85 ? DECAL.crack : DECAL.crackB;
+      const o = (r() - 0.5) * (s.road - 2.5);
+      const [x, z] = at(t, o);
+      const sz = cell === DECAL.patch ? 1.4 + r() * 1.8 : cell === DECAL.oil ? 1.2 + r() * 1.0 : 1.5 + r() * 1.5;
+      const a = r() * Math.PI, cs = Math.cos(a) * sz / 2, sn = Math.sin(a) * sz / 2;
+      const D = P(x, z).decal;
+      const V = (px, pz) => [px, terrainH(px, pz) + lift, pz];   // follows the road's own drape
+      D.su = D.sv = 1;
+      D.quad(V(x - cs + sn, z - sn - cs), V(x + cs + sn, z + sn - cs), V(x + cs - sn, z + sn + cs), V(x - cs - sn, z - sn + cs),
+        [0, 1, 0], cell === DECAL.patch ? [0.95, 0.95, 0.95] : [1, 1, 1], decalUV(cell, r() < 0.5));
+    }
+  }
 }
 
 // Conifers on the hillsides between the town edges and the mountains, and a
@@ -1193,8 +1473,14 @@ function emitGround(blk, buf, forecourt) {
     for (let k = 0; k < n; k++) {
       const px = ax + (bx - ax) * k / n, pz = az + (bz - az) * k / n;
       const qx = ax + (bx - ax) * (k + 1) / n, qz = az + (bz - az) * (k + 1) / n;
+      // kerb stone: face up to a 3 cm chamfer, then a 15 cm top, a hair proud
+      // of the slabs, so the edge catches the light
+      const inX = -out[0] * 0.03, inZ = -out[2] * 0.03, tX = -out[0] * 0.15, tZ = -out[2] * 0.15;
+      const hp = H(px, pz) + 0.006, hq = H(qx, qz) + 0.006;
       buf.quad([px, terrainH(px, pz) - 0.1, pz], [qx, terrainH(qx, qz) - 0.1, qz],
-        [qx, H(qx, qz), qz], [px, H(px, pz), pz], out, [0.95, 0.94, 0.9]);
+        [qx, hq - 0.03, qz], [px, hp - 0.03, pz], out, [0.78, 0.77, 0.74]);
+      buf.quad([px, hp - 0.03, pz], [qx, hq - 0.03, qz], [qx + inX, hq, qz + inZ], [px + inX, hp, pz + inZ], [out[0], 1, out[2]], [0.8, 0.79, 0.76]);
+      buf.quad([px + inX, hp, pz + inZ], [qx + inX, hq, qz + inZ], [qx + tX, hq, qz + tZ], [px + tX, hp, pz + tZ], [0, 1, 0], [0.7, 0.69, 0.67]);
     }
   };
   if (pave.n) edge(x1, z1, x2, z1, [0, 0, -1]);

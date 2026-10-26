@@ -44,7 +44,7 @@ export async function capture(rs, prefix, opts = {}) {
   g.camera.aspect = W / H; g.camera.updateProjectionMatrix();
   if (g.post) g.post.setSize(W, H, 1);
   const out = [];
-  const V = views(rs);
+  const V = opts.views || views(rs);
   for (const tod of opts.times || ['day', 'dusk', 'night']) {
     g._setTime(tod);
     if (opts.onTime) await opts.onTime(tod);

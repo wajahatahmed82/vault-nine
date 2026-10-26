@@ -3,6 +3,7 @@ import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { SHARED } from './townmat.js';
 import { load as loadAsset } from './assets.js';
 import { TOUCH_ONLY } from './input.js';
+import { lampGlow } from './models.js';
 
 // Atmosphere: sky, time of day, height fog, street lighting.
 //
@@ -442,6 +443,8 @@ export function createAtmosphere(game, renderer, opts = {}) {
     }
     heads.instanceColor.needsUpdate = true;
     pools.instanceColor.needsUpdate = true;
+    // the street-lamp models: the scanned lantern's glass hides the head box
+    for (const m of lampGlow()) m.emissive.setRGB(2.6 * n * pw, 2.0 * n * pw, 1.25 * n * pw);
     pools.visible = n > 0.05;
     winPools.visible = n > 0.05;
     winPools.material.color.setScalar(n * pw);

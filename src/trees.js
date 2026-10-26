@@ -160,6 +160,9 @@ function farTrees(bark) {
   one('tree_oak', 10, 3.6, false);
   one('tree_ash', 11, 4.2, false);
   one('tree_aspen', 10, 2.3, false);
+  // hedge bushes past 35 m: one lumpy blob, ~80 triangles
+  registerKind('bush_far', { parts: [{ geometry: crown(1.45, 0.85), material: broad, matrix: new THREE.Matrix4() }],
+    size: new THREE.Vector3(1.7, 1.7, 1.7), shadow: false, noShadow: true });
 }
 
 function merge(list) {

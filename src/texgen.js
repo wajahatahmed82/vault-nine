@@ -49,16 +49,21 @@ function rnd(seed) {
 
 // A layer: draw(ctx, hctx, r) paints albedo and height (grey) canvases.
 // `rough` is the base roughness, `nrm` normal strength, `grain` noise amount.
-function bake(layers) {
-  const S = TEX, n = layers.length;
+// `photo`: indices of layers a CC0 photo replaces once loaded (applyCC0).
+// Those are not drawn and upsampled here (2 s of the town build): they get
+// their drawing's average colour, flat, until the photo arrives, and
+// `redraw(layer)` draws one for real if its photo cannot be loaded (the
+// single-file preview has no asset files).
+function bake(photo, layers) {
+  const S = TEX, n = layers.length, O = OUT;
   if (!NOISE) NOISE = noiseTile(S);
-  const alb = new Uint8Array(S * S * 4 * n);
-  const nr = new Uint8Array(S * S * 4 * n);
   const c = document.createElement('canvas'); c.width = c.height = S;
   const h = document.createElement('canvas'); h.width = h.height = S;
   const cx = c.getContext('2d', { willReadFrequently: true });
   const hx = h.getContext('2d', { willReadFrequently: true });
-  layers.forEach((L, li) => {
+  // one layer at S px into alb/nr at layer offset `lo`
+  const drawLayer = (li, alb, nr, lo) => {
+    const L = layers[li];
     cx.fillStyle = '#808080'; cx.fillRect(0, 0, S, S);
     hx.fillStyle = '#808080'; hx.fillRect(0, 0, S, S);
     L.draw(cx, hx, rnd(li * 977 + 13));
@@ -71,7 +76,7 @@ function bake(layers) {
       const nz = NOISE[(i + off * S + off) % (S * S)];
       H[i] = hd[i * 4] / 255 + (nz - 0.5) * grain * 0.6;
       const k = 1 + (nz - 0.5) * grain;
-      const o = li * S * S * 4 + i * 4;
+      const o = lo * S * S * 4 + i * 4;
       alb[o] = Math.min(255, a[i * 4] * k); alb[o + 1] = Math.min(255, a[i * 4 + 1] * k);
       // alpha carries height (1 = proud face, 0 = deep joint) for parallax
       alb[o + 2] = Math.min(255, a[i * 4 + 2] * k); alb[o + 3] = Math.max(0, Math.min(255, H[i] * 255));
@@ -82,7 +87,7 @@ function bake(layers) {
       for (let x = 0; x < S; x++) {
         const dx = (at(x + 1, y) - at(x - 1, y)) * st, dy = (at(x, y + 1) - at(x, y - 1)) * st;
         const len = Math.hypot(dx, dy, 1);
-        const o = li * S * S * 4 + (y * S + x) * 4;
+        const o = lo * S * S * 4 + (y * S + x) * 4;
         nr[o] = (-dx / len * 0.5 + 0.5) * 255;
         nr[o + 1] = (-dy / len * 0.5 + 0.5) * 255;   // data rows run +v (no flipY)
         nr[o + 2] = (1 / len * 0.5 + 0.5) * 255;
@@ -90,34 +95,46 @@ function bake(layers) {
         nr[o + 3] = Math.max(0, Math.min(255, ((L.rough ?? 0.9) + (0.5 - at(x, y)) * 0.25) * 255));
       }
     }
-  });
-  const up = (src) => {
-    if (OUT === S) return src;
-    // bilinear upsample, layer by layer, in plain JS (canvas would premultiply
-    // the roughness stored in alpha and corrupt the normals)
-    const O = OUT, dst = new Uint8Array(O * O * 4 * n);
-    for (let l = 0; l < n; l++) {
-      const sb = l * S * S * 4, db = l * O * O * 4;
-      for (let y = 0; y < O; y++) {
-        const fy = (y + 0.5) * S / O - 0.5, y0 = Math.floor(fy), ty = fy - y0;
-        const ya = ((y0 % S) + S) % S, yb = (ya + 1) % S;
-        for (let x = 0; x < O; x++) {
-          const fx = (x + 0.5) * S / O - 0.5, x0 = Math.floor(fx), tx = fx - x0;
-          const xa = ((x0 % S) + S) % S, xb = (xa + 1) % S;
-          const o = db + (y * O + x) * 4;
-          for (let c = 0; c < 4; c++) {
-            const a = src[sb + (ya * S + xa) * 4 + c], b = src[sb + (ya * S + xb) * 4 + c];
-            const cc = src[sb + (yb * S + xa) * 4 + c], d = src[sb + (yb * S + xb) * 4 + c];
-            dst[o + c] = (a + (b - a) * tx) * (1 - ty) + (cc + (d - cc) * tx) * ty;
-          }
+  };
+  // bilinear upsample of one layer, in plain JS (canvas would premultiply the
+  // roughness stored in alpha and corrupt the normals)
+  const upLayer = (src, sl, dst, dl) => {
+    const sb = sl * S * S * 4, db = dl * O * O * 4;
+    if (O === S) { dst.set(src.subarray(sb, sb + S * S * 4), db); return; }
+    for (let y = 0; y < O; y++) {
+      const fy = (y + 0.5) * S / O - 0.5, y0 = Math.floor(fy), ty = fy - y0;
+      const ya = ((y0 % S) + S) % S, yb = (ya + 1) % S;
+      for (let x = 0; x < O; x++) {
+        const fx = (x + 0.5) * S / O - 0.5, x0 = Math.floor(fx), tx = fx - x0;
+        const xa = ((x0 % S) + S) % S, xb = (xa + 1) % S;
+        const o = db + (y * O + x) * 4;
+        for (let ch = 0; ch < 4; ch++) {
+          const a = src[sb + (ya * S + xa) * 4 + ch], b = src[sb + (ya * S + xb) * 4 + ch];
+          const cc = src[sb + (yb * S + xa) * 4 + ch], d = src[sb + (yb * S + xb) * 4 + ch];
+          dst[o + ch] = (a + (b - a) * tx) * (1 - ty) + (cc + (d - cc) * tx) * ty;
         }
       }
     }
-    return dst;
   };
+  const A = new Uint8Array(O * O * 4 * n), NR = new Uint8Array(O * O * 4 * n);
+  const alb = new Uint8Array(S * S * 4), nr = new Uint8Array(S * S * 4);
+  for (let li = 0; li < n; li++) {
+    if (photo && photo.has(li)) {
+      const L = layers[li];
+      cx.fillStyle = '#808080'; cx.fillRect(0, 0, S, S);
+      cx.save(); cx.scale(16 / S, 16 / S); L.draw(cx, hx, rnd(li * 977 + 13)); cx.restore();
+      const a = cx.getImageData(0, 0, 16, 16).data, m = [0, 0, 0];
+      for (let i = 0; i < 256; i++) { m[0] += a[i * 4]; m[1] += a[i * 4 + 1]; m[2] += a[i * 4 + 2]; }
+      const ca = [m[0] / 256, m[1] / 256, m[2] / 256, 128], cn = [128, 128, 255, (L.rough ?? 0.9) * 255];
+      const db = li * O * O * 4;
+      for (let i = 0; i < O * O; i++) for (let ch = 0; ch < 4; ch++) { A[db + i * 4 + ch] = ca[ch]; NR[db + i * 4 + ch] = cn[ch]; }
+      continue;
+    }
+    drawLayer(li, alb, nr, 0);
+    upLayer(alb, 0, A, li); upLayer(nr, 0, NR, li);
+  }
   const mk = (data, srgb) => {
-    data = up(data);
-    const t = new THREE.DataArrayTexture(data, OUT, OUT, n);
+    const t = new THREE.DataArrayTexture(data, O, O, n);
     t.format = THREE.RGBAFormat;
     t.type = THREE.UnsignedByteType;
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -129,7 +146,18 @@ function bake(layers) {
     t.needsUpdate = true;
     return t;
   };
-  return { albedo: mk(alb, true), normalRough: mk(nr, false), layers: n };
+  const out = { albedo: mk(A, true), normalRough: mk(NR, false), layers: n };
+  out.redraw = (li) => {
+    drawLayer(li, alb, nr, 0);
+    upLayer(alb, 0, out.albedo.image.data, li); upLayer(nr, 0, out.normalRough.image.data, li);
+    out.albedo.needsUpdate = true; out.normalRough.needsUpdate = true;
+  };
+  return out;
+}
+
+// The layers of one array that a CC0 photo set replaces.
+function photoLayers(kind, index) {
+  return new Set(Object.keys(CC0_LAYERS[kind] || {}).map((k) => index[k]));
 }
 
 const rgb = (r, g, b) => `rgb(${r | 0},${g | 0},${b | 0})`;
@@ -196,7 +224,7 @@ export function tile(buf, table, layer) {
 }
 
 export function buildFacadeArray() {
-  return bake([
+  return bake(photoLayers('facade', FACADE), [
     { rough: 0.92, nrm: 4, draw: (cx, hx, r) => {   // red brick: 8 per 1.8 m, 24 courses
       courses(cx, hx, r, 32, 10.67, 2.2, (r) => { const v = r(); return [150 + v * 40, 68 + v * 22, 52 + v * 16]; }, rgb(176, 168, 156));
       blotches(cx, r, 10, '60,52,46', 0.18, 40);
@@ -276,7 +304,7 @@ export function buildFacadeArray() {
 }
 
 export function buildRoofArray() {
-  return bake([
+  return bake(photoLayers('roof', ROOF), [
     { rough: 0.8, nrm: 5, draw: (cx, hx, r) => {   // clay tiles: 0.3 m courses
       const ch = TEX / 4, tw = TEX / 6;
       for (let row = 0; row < 4; row++) {
@@ -318,7 +346,7 @@ export function buildRoofArray() {
 }
 
 export function buildGroundArray() {
-  return bake([
+  return bake(photoLayers('ground', GROUND), [
     { rough: 0.9, nrm: 4, draw: (cx, hx, r) => {   // paving slabs 0.6 m
       courses(cx, hx, r, 64, 64, 3, (r) => { const v = r(); return [186 + v * 18, 182 + v * 18, 172 + v * 18]; }, rgb(120, 116, 108), { bond: 0 });
       blotches(cx, r, 16, '70,66,58', 0.18, 30);
@@ -436,7 +464,29 @@ export const CC0_LAYERS = {
 
 async function image(path) {
   const buf = await fetchAsset(path);
-  return createImageBitmap(new Blob([buf], { type: 'image/jpeg' }));
+  return createImageBitmap(new Blob([buf], { type: path.endsWith('.webp') ? 'image/webp' : 'image/jpeg' }));
+}
+
+// Road paint wears through to the asphalt: the chipped edge line of the CC0
+// RoadLines009 decal (its alpha, the left line's column stretched across the
+// strip, which is how the markings' UVs run) mixes paint and asphalt.
+async function wearPaint(arr, g, sfx) {
+  const img = await image(`assets/mat/RoadLines009_d${sfx}.webp`);
+  g.clearRect(0, 0, OUT, OUT); g.drawImage(img, 0, 0, OUT, OUT);
+  const x0 = Math.round(OUT * 0.045), x1 = Math.round(OUT * 0.062);
+  const col = g.getImageData(x0, 0, x1 - x0 + 1, OUT).data, cw = x1 - x0 + 1;
+  const base = GROUND.paint * OUT * OUT * 4, A = arr.albedo.image.data, NR = arr.normalRough.image.data;
+  for (let y = 0; y < OUT; y++) {
+    for (let x = 0; x < OUT; x++) {
+      const sx = Math.min(cw - 1, Math.floor(x / OUT * cw)), sy = (y * 3 + Math.floor(x / OUT * 37)) % OUT;
+      const nz = NOISE[((y >> 1) % TEX) * TEX + ((x * 3) % TEX)];
+      const a = col[(sy * cw + sx) * 4 + 3] / 255 * Math.min(1, Math.max(0, (nz - 0.3) * 3.5)), i = base + (y * OUT + x) * 4;
+      const k = 0.78 + 0.22 * Math.sin(y * 0.05 + x * 0.02);   // a little dirt in the paint
+      A[i] = (72 + (226 * k - 72) * a); A[i + 1] = (71 + (224 * k - 71) * a); A[i + 2] = (70 + (214 * k - 70) * a);
+      A[i + 3] = 120 + a * 16;          // paint stands a hair proud
+      NR[i + 3] = 255 * (0.95 - 0.3 * a);
+    }
+  }
 }
 
 export async function applyCC0(arrays) {
@@ -455,6 +505,7 @@ export async function applyCC0(arrays) {
         [col, nrm, rh] = await Promise.all(['c', 'n', 'rh'].map((k) => image(`assets/mat/${asset}_${k}${sfx}.jpg`)));
       } catch (e) {
         console.warn('texture not loaded', asset, e.message);
+        if (arr.redraw) arr.redraw(index[kind][layerName]);
         continue;
       }
       const L = index[kind][layerName];
@@ -471,6 +522,9 @@ export async function applyCC0(arrays) {
       const np = read(nrm);
       for (let i = 0; i < OUT * OUT; i++) { NR[base + i * 4] = np[i * 4]; NR[base + i * 4 + 1] = np[i * 4 + 1]; NR[base + i * 4 + 2] = np[i * 4 + 2]; }
       applied++;
+    }
+    if (kind === 'ground') {
+      try { await wearPaint(arr, g, sfx); applied++; } catch (e) { console.warn('road paint wear not applied', e.message); }
     }
     arr.albedo.needsUpdate = true;
     arr.normalRough.needsUpdate = true;

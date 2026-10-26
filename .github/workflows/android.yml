@@ -56,6 +56,12 @@ jobs:
           mkdir -p www/assets/chars
           cp docs/assets/chars/*_lo.glb docs/assets/chars/LICENSE-Rocketbox.txt www/assets/chars/
           rm -f www/assets/chars/military_male_01_lo.glb www/assets/chars/military_female_02_lo.glb
+          # phones load the 256 px textures and decals and the small props
+          # (texgen/towndecals/trees/grass/models pick _lo on touch devices)
+          mkdir -p www/assets/mat www/assets/props www/assets/libs/basis
+          cp docs/assets/mat/*_lo.* www/assets/mat/
+          cp docs/assets/props/*_lo.glb www/assets/props/
+          cp docs/assets/libs/basis/* www/assets/libs/basis/
           npx cap sync android
 
       - name: Build test APK

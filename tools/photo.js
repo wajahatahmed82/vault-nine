@@ -35,6 +35,15 @@ export function off(rs) {
   saved = null;
 }
 
+// the town draws only the props in the camera's view cone (models.js), so
+// refresh it for the new camera before drawing
+function townFor(g) {
+  if (!g.town) return;
+  const d = g.camera.getWorldDirection(g.camera.position.clone());
+  const l = Math.hypot(d.x, d.z) || 1;
+  g.town.update(g.camera.position, undefined, { x: d.x / l, z: d.z / l });
+}
+
 export function eye(rs, x, z, yaw, pitch = 0) {
   const g = rs.game;
   const y = g.player.groundAt(x, z, g.surfaceH ? g.surfaceH(x, z) + 0.5 : 0.5) + 1.62;
@@ -43,6 +52,7 @@ export function eye(rs, x, z, yaw, pitch = 0) {
   cam.rotation.order = 'YXZ';
   cam.rotation.set(pitch, yaw, 0);
   cam.updateMatrixWorld();
+  townFor(g);
   // draw now: a hidden pane throttles requestAnimationFrame
   g.render();
   return y;
@@ -53,5 +63,6 @@ export function look(rs, px, py, pz, tx, ty, tz) {
   cam.position.set(px, py, pz);
   cam.lookAt(tx, ty, tz);
   cam.updateMatrixWorld();
+  townFor(rs.game);
   rs.game.render();
 }

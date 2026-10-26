@@ -577,8 +577,16 @@ export class HUD {
         <p><b>Universal Animation Library</b> by Quaternius &mdash; motion capture. CC0 1.0.</p>
         <div class="sec">SKIES</div>
         <p>Kloofendal 48d Partly Cloudy, Belfast Sunset, Kloppenheim 02 &mdash; Poly Haven. CC0 1.0.</p>
-        <div class="sec">TEXTURES</div>
-        <p>Bricks104, Plaster001, WoodSiding008, Concrete034, RoofingTiles003, RoofingTiles013A, Grass005, PavingStones138, Asphalt033 &mdash; ambientCG. CC0 1.0.</p>
+        <div class="sec">TEXTURES AND DECALS</div>
+        <p>Bricks104, Bricks103, Bricks097, Bricks090, Bricks110A, Bricks066, PaintedBricks004, Plaster001, WoodSiding008, Concrete034, RoofingTiles003, RoofingTiles012A, RoofingTiles013A, Grass005, PavingStones136, PavingStones138, Asphalt033, Asphalt013, Road012A, RoadLines007, RoadLines009, ManholeCover003, ManholeCover007, Grate001, Leaking003, Moss002, Bark006, LeafSet026, Foliage006 &mdash; ambientCG. CC0 1.0.</p>
+        <div class="sec">PROPS, FURNITURE AND PLANTS</div>
+        <p>Street lamps, hydrants, bins, barriers, fences, telegraph poles, gutters, benches, cabinets, lights, air-con units, tyres, covered car, fire escape, planters, barrels, crates, boxes, gas bottles, generator, signs, office and shop furniture, house furniture, lamps, shrubs, ferns and pots &mdash; Poly Haven. CC0 1.0. (Full list in ASSETS.md.)</p>
+        <div class="sec">TREES</div>
+        <p><b>ez-tree</b> by Daniel Greenheck &mdash; tree generator.<br>
+        MIT License, Copyright (c) 2024 Daniel Greenheck.</p>
+        <p class="lic">Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</p>
+        <div class="sec">DECODERS</div>
+        <p>meshoptimizer decoder (MIT, Copyright (c) 2016-2022 Arseny Kapoulkine) and the Basis Universal KTX2 transcoder (Apache License 2.0, Binomial LLC), as shipped with three.js.</p>
         <button class="btn" data-a="back">Back</button>
       </div>`);
   }

@@ -19,79 +19,73 @@ import { TOUCH_ONLY } from './input.js';
 // If the files cannot load, the stand-ins simply stay.
 
 export const KINDS = {
-  hydrant: { file: 'fire_hydrant', nodes: /^fire_hydrant(?!.*aged)/, rotY: 0, shadow: true },
-  hydrantOld: { file: 'fire_hydrant', nodes: /aged/, shadow: true },
+  hydrant: { file: 'fire_hydrant', nodes: /^fire_hydrant(?!.*aged)/, rotY: 0 },
+  hydrantOld: { file: 'fire_hydrant', nodes: /aged/ },
   // (the lids stand beside the cans in the scan; street bins keep theirs on)
-  bin: { file: 'metal_trash_can', nodes: /^metal_trash_can(_handle_(left|right))?$/, shadow: true },
-  binRust: { file: 'metal_trash_can', nodes: /^metal_trash_can_rust(_handle_(left|right))?$/, shadow: true },
+  bin: { file: 'metal_trash_can', nodes: /^metal_trash_can(_handle_(left|right))?$/ },
+  binRust: { file: 'metal_trash_can', nodes: /^metal_trash_can_rust(_handle_(left|right))?$/ },
   lampPost: { file: 'street_lamp_01', scale: 1.45, shadow: true },
-  wallLamp: { file: 'street_lamp_02' },
   barrier: { file: 'concrete_road_barrier_02', shadow: true },
   fencePanel: { file: 'modular_chainlink_fence', nodes: /^modular_chainlink_fence_double$/, shadow: true },
   fencePost: { file: 'modular_chainlink_fence', nodes: /^modular_chainlink_fence_post$/, shadow: true },
-  pole1: { file: 'modular_electricity_poles', nodes: /^preset_01_/, scale: 1.4, shadow: true },
-  pole2: { file: 'modular_electricity_poles', nodes: /^preset_02_/, scale: 1.4, shadow: true },
-  pole3: { file: 'modular_electricity_poles', nodes: /^preset_03_/, scale: 1.4, shadow: true },
-  gutter: { file: 'modular_metal_gutter', nodes: /^modular_metal_gutter$/ },
+  pole1: { file: 'modular_electricity_poles', nodes: /^preset_01_/, scale: 1.4 },
+  pole2: { file: 'modular_electricity_poles', nodes: /^preset_02_/, scale: 1.4 },
+  pole3: { file: 'modular_electricity_poles', nodes: /^preset_03_/, scale: 1.4 },
   downpipe: { file: 'modular_metal_gutter', nodes: /^modular_metal_gutter_section$/ },
   pipeOutlet: { file: 'modular_metal_gutter', nodes: /^modular_metal_gutter_outlet$/ },
   pipeFunnel: { file: 'modular_metal_gutter', nodes: /^modular_metal_gutter_funnel$/ },
-  seating: { file: 'modular_street_seating', nodes: /^(crossbar|legs_double|legs_single|back_support_r|back_support_l|arm_rest_01|arm_rest_02|seat|seat_back)$/, shadow: true },
   bench: { file: 'painted_wooden_bench', shadow: true },
-  cabinet: { file: 'utility_box_01', shadow: true },
-  cabinetWide: { file: 'utility_box_02', shadow: true },
+  cabinet: { file: 'utility_box_01' },
+  cabinetWide: { file: 'utility_box_02' },
   floodlight: { file: 'security_light' },
   aircon: { file: 'exterior_aircon_unit', nodes: /^exterior_aircon_unit$/ },
   airconRust: { file: 'exterior_aircon_unit', nodes: /rusted/ },
-  shutterDoor: { file: 'rollershutter_door', nodes: /^rollershutter_door$/ },
-  shutterWindow: { file: 'rollershutter_window_01', nodes: /^rollershutter_window_01$/ },
   tyre: { file: 'old_tyre' },
   coveredCar: { file: 'covered_car', shadow: true },
   fireEscape: { file: 'modular_fire_escape', shadow: true, keepY: true },
-  planter: { file: 'planter_box_01', shadow: true },
-  barrel: { file: 'Barrel_01', shadow: true },
-  barrelB: { file: 'barrel_03', shadow: true },
-  crate: { file: 'wooden_crate_01', shadow: true },
-  crateLoot: { file: 'old_military_crate', nodes: /_a$/, shadow: true },
+  planter: { file: 'planter_box_01' },
+  barrel: { file: 'Barrel_01' },
+  barrelB: { file: 'barrel_03' },
+  crate: { file: 'wooden_crate_01' },
+  crateLoot: { file: 'old_military_crate', nodes: /_a$/ },
   plasticCrate: { file: 'plastic_crate_03' },
   box: { file: 'cardboard_box_01' },
-  propane: { file: 'propane_tank', shadow: true },
-  generator: { file: 'portable_generator', shadow: true },
+  propane: { file: 'propane_tank' },
+  generator: { file: 'portable_generator' },
   wetSign: { file: 'WetFloorSign_01' },
-  shrubA: { file: 'shrub_02', nodes: /_a$/, shadow: true },
-  shrubB: { file: 'shrub_02', nodes: /_b$/, shadow: true },
-  shrubC: { file: 'shrub_02', nodes: /_c$/, shadow: true },
-  shrubD: { file: 'shrub_02', nodes: /_d$/, shadow: true },
+  shrubA: { file: 'shrub_02', nodes: /_a$/ },
+  shrubB: { file: 'shrub_02', nodes: /_b$/ },
+  shrubC: { file: 'shrub_02', nodes: /_c$/ },
+  shrubD: { file: 'shrub_02', nodes: /_d$/ },
   weed: { file: 'weed_plant_02', nodes: /_a_LOD0$/ },
   weedB: { file: 'weed_plant_02', nodes: /_c_LOD0$/ },
   fern: { file: 'fern_02', nodes: /_b$/ },
   pot: { file: 'potted_plant_04' },
   claypot: { file: 'planter_pot_clay' },
   // interiors
-  desk: { file: 'metal_office_desk', shadow: true },
-  officeChair: { file: 'modern_arm_chair_01', shadow: true },
-  chair: { file: 'SchoolChair_01', shadow: true },
-  shelves: { file: 'steel_frame_shelves_01', scale: 0.1, shadow: true },
-  rack: { file: 'worn_metal_rack', shadow: true },
-  bookshelf: { file: 'wooden_bookshelf_worn', shadow: true },
-  filing: { file: 'drawer_cabinet', shadow: true },
+  desk: { file: 'metal_office_desk' },
+  officeChair: { file: 'modern_arm_chair_01' },
+  chair: { file: 'SchoolChair_01' },
+  shelves: { file: 'steel_frame_shelves_01', scale: 0.1 },
+  rack: { file: 'worn_metal_rack' },
+  bookshelf: { file: 'wooden_bookshelf_worn' },
+  filing: { file: 'drawer_cabinet' },
   tubeLight: { file: 'mounted_fluorescent_lights', keepY: true },
   till: { file: 'CashRegister_01' },
-  sofa: { file: 'Sofa_01', shadow: true },
-  coffeeTable: { file: 'CoffeeTable_01', shadow: true },
+  sofa: { file: 'Sofa_01' },
+  coffeeTable: { file: 'CoffeeTable_01' },
   tv: { file: 'Television_01' },
   laptop: { file: 'classic_laptop' },
   notepads: { file: 'office_notepads' },
-  stool: { file: 'metal_stool_01', shadow: true },
-  displayShelves: { file: 'wooden_display_shelves_01', shadow: true },
-  toolCart: { file: 'tool_cart', shadow: true },
-  toolChest: { file: 'metal_tool_chest', shadow: true },
-  diningTable: { file: 'dining_table', shadow: true },
-  cafeChair: { file: 'plastic_monobloc_chair_01', shadow: true },
-  kitchenChair: { file: 'painted_wooden_chair_01', shadow: true },
-  table: { file: 'painted_wooden_table', shadow: true },
-  wallShelves: { file: 'painted_wooden_shelves', shadow: true },
-  cupboard: { file: 'painted_wooden_cabinet', shadow: true },
+  stool: { file: 'metal_stool_01' },
+  displayShelves: { file: 'wooden_display_shelves_01' },
+  toolCart: { file: 'tool_cart' },
+  toolChest: { file: 'metal_tool_chest' },
+  cafeChair: { file: 'plastic_monobloc_chair_01' },
+  kitchenChair: { file: 'painted_wooden_chair_01' },
+  table: { file: 'painted_wooden_table' },
+  wallShelves: { file: 'painted_wooden_shelves' },
+  cupboard: { file: 'painted_wooden_cabinet' },
   extinguisher: { file: 'korean_fire_extinguisher_01' },
   clock: { file: 'wall_clock', keepY: true },
   ceilingLamp: { file: 'modern_ceiling_lamp_01', keepY: true },
@@ -103,6 +97,38 @@ export const modelsReady = () => lib.ready;
 export const kind = (k) => lib.kinds[k];
 // Kinds made in code (cars.js) join the same instancing, with no download.
 export function registerKind(name, k) { lib.kinds[name] = k; }
+
+// Light stand-ins for the scans past their near distance: a telegraph pole is
+// 9k triangles and a lamp post 2.5k, both seen from 400 m down a street. A
+// tapered post (and cross-arm or lantern) of the scan's own height, ~60
+// triangles, no shadow.
+function farProps() {
+  const mat = (r, g, b) => new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace), roughness: 0.9 });
+  const wood = mat(0.3, 0.24, 0.18), iron = mat(0.06, 0.06, 0.07);
+  const one = (name, build) => {
+    const k = lib.kinds[name];
+    if (!k) return;
+    lib.kinds[name + '_far'] = { parts: build(k.size).map((geometry) => ({ geometry, material: geometry.userData.m, matrix: new THREE.Matrix4() })), size: k.size, shadow: false, noShadow: true };
+  };
+  const tag = (g, m) => { g.userData.m = m; return g; };
+  for (const p of ['pole1', 'pole2', 'pole3']) {
+    one(p, (sz) => [
+      tag(new THREE.CylinderGeometry(0.11, 0.15, sz.y, 6).translate(0, sz.y / 2, 0), wood),
+      tag(new THREE.BoxGeometry(Math.max(1.2, sz.x * 0.9), 0.12, 0.12).translate(0, sz.y * 0.93, 0), wood),
+    ]);
+  }
+  const glow = mat(0.75, 0.72, 0.62);
+  one('lampPost', (sz) => [
+    tag(new THREE.CylinderGeometry(0.05, 0.09, sz.y * 0.86, 6).translate(0, sz.y * 0.43, 0), iron),
+    tag(new THREE.CylinderGeometry(0.2, 0.13, sz.y * 0.14, 6).translate(0, sz.y * 0.93, 0), glow),
+  ]);
+  // the lantern glass of the scan and the far lantern light up at night (sky.js)
+  const glass = lib.kinds.lampPost && lib.kinds.lampPost.parts.find((p) => /glass/.test(p.material.name));
+  lib.lampGlow = [glow].concat(glass ? [glass.material] : []);
+}
+
+// materials sky.js lights with the street lamps
+export function lampGlow() { return lib.lampGlow || []; }
 
 let loader = null;
 function gltfLoader(renderer) {
@@ -186,6 +212,7 @@ export function loadModels(renderer) {
       const scene = lib.files[spec.file];
       if (scene) { const k = makeKind(spec, scene); if (k) lib.kinds[name] = k; }
     }
+    farProps();
     lib.ready = Object.keys(lib.kinds).length > 0;
     lib.failed = !lib.ready;
     return lib.ready;
@@ -239,11 +266,19 @@ export function instance(placements, opts = {}) {
 const VIEW = {
   weed: 35, weedB: 35, fern: 35, box: 45, tyre: 45, pot: 30, claypot: 30,
   hydrant: 70, hydrantOld: 70, bin: 70, binRust: 70, barrel: 70, barrelB: 70, crate: 60, plasticCrate: 50,
-  bench: 90, seating: 90, planter: 90, cabinet: 80, cabinetWide: 80, aircon: 70, airconRust: 70, floodlight: 70,
-  bush: 55, lampPost: 110, pole1: 150, pole2: 150, pole3: 150, lightbar: 120, barrier: 140,
+  bench: 60, seating: 90, planter: 70, cabinet: 80, cabinetWide: 80, aircon: 70, airconRust: 70, floodlight: 70,
+  bush: 35, lampPost: 45, pole1: 70, pole2: 70, pole3: 70, lightbar: 120, barrier: 140,
   car_hatch: 220, car_sedan: 220, car_estate: 220, car_van: 220, coveredCar: 160,
+  downpipe: 70, pipeOutlet: 50, pipeFunnel: 60, fireEscape: 140, shrubA: 60, shrubB: 60, shrubC: 60, shrubD: 60,
+  // indoors: seen through a door or a window at most
+  desk: 28, officeChair: 28, chair: 28, shelves: 35, rack: 28, bookshelf: 28, filing: 28, tubeLight: 28,
+  till: 28, sofa: 28, coffeeTable: 28, tv: 28, laptop: 28, notepads: 28, stool: 28, displayShelves: 28,
+  table: 28, diningTable: 28, cafeChair: 28, kitchenChair: 28, cupboard: 28, wallShelves: 28,
+  extinguisher: 28, clock: 28, ceilingLamp: 28, hangingLamp: 35, wetSign: 28, toolCart: 28, toolChest: 28,
 };
 const NEAR_TREE = 80, FAR_TREE = 420;
+// how far a kind's light `_far` version is drawn (past its near distance)
+const FAR = { lampPost: 180, pole1: 420, pole2: 420, pole3: 420, bush: 120 };
 export function viewDistance(k) {
   if (k.startsWith('tree_')) return NEAR_TREE;
   return VIEW[k] || 120;
@@ -259,12 +294,12 @@ export class KindInstances {
     this.name = name;
     this.near = viewDistance(name);
     this.farName = lib.kinds[name + '_far'] ? name + '_far' : null;
-    this.far = this.farName ? FAR_TREE : 0;
+    this.far = this.farName ? FAR[name] || FAR_TREE : 0;
     this.list = placements;
     this.base = placements.map((p) => {
       _q.setFromAxisAngle(_UP, p.rot || 0);
       const sc = p.s || 1;
-      _s.set(sc, sc * (p.sy || 1), sc);
+      _s.set(sc * (p.sx || 1), sc * (p.sy || 1), sc);
       return new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y, p.z), _q, _s);
     });
     const make = (k) => lib.kinds[k].parts.map((part) => {
@@ -283,14 +318,23 @@ export class KindInstances {
     this.at = new THREE.Vector3(1e9, 0, 0);
   }
 
-  update(cam, force) {
-    if (!force && Math.abs(cam.x - this.at.x) + Math.abs(cam.z - this.at.z) < 6) return;
+  // dir: the camera's horizontal view direction (x, z), when known. An
+  // InstancedMesh is culled as a whole, so instances well outside the view
+  // cone are left out here (beyond 25 m: nearer ones still cast shadows into
+  // view), and the fill is redone when the camera turns as well as moves.
+  update(cam, force, dir) {
+    const turned = dir && this.dir && this.dir.x * dir.x + this.dir.z * dir.z < 0.96;
+    if (!force && !turned && Math.abs(cam.x - this.at.x) + Math.abs(cam.z - this.at.z) < 6) return;
     this.at.set(cam.x, 0, cam.z);
+    this.dir = dir && force !== 'all' ? { x: dir.x, z: dir.z } : null;
+    const D = this.dir;
     const n2 = force === 'all' ? Infinity : this.near * this.near, f2 = this.far * this.far;
     let nn = 0, nf = 0;
     const near = [], far = [];
     for (let i = 0; i < this.list.length; i++) {
       const p = this.list[i], dx = p.x - cam.x, dz = p.z - cam.z, d2 = dx * dx + dz * dz;
+      // outside a 150 degree cone (the view plus the turn before a refill)
+      if (D && d2 > 625 && dx * D.x + dz * D.z < -0.26 * Math.sqrt(d2)) continue;
       if (d2 < n2) near.push(i); else if (d2 < f2) far.push(i);
     }
     const fill = (meshes, idx) => {

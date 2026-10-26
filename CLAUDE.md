@@ -1,6 +1,6 @@
 # VAULT NINE — working notes
 
-Story-driven FPS, browser + Android. Three.js, procedural geometry, audio and most textures. Third-party content: nine CC0 photo textures (ambientCG, embedded by `tools/cc0pack.js` into `src/cc0data.js`), three CC0 HDRI skies (Poly Haven, `docs/assets/sky/`), eight MIT Rocketbox soldiers with CC0 Quaternius motion (`docs/assets/chars/`), all loaded at run time and listed in ASSETS.md; any new asset must be listed to the user before download and logged there. Formerly ROBOT STRIKE; local folder and localStorage keys (`robotstrike.*`) keep the old name on purpose — renaming the keys would wipe every player's saves.
+Story-driven FPS, browser + Android. Three.js, procedural geometry, audio and most textures. Third-party content: CC0 photo textures and decals (ambientCG, `docs/assets/mat/`), three CC0 HDRI skies (Poly Haven, `docs/assets/sky/`), eight MIT Rocketbox soldiers with CC0 Quaternius motion (`docs/assets/chars/`), 57 CC0 Poly Haven props/furniture/plants (`docs/assets/props/`), the MIT ez-tree generator (`src/vendor/ez-tree/`), all loaded at run time and listed in ASSETS.md; any new asset must be listed to the user before download and logged there. Formerly ROBOT STRIKE; local folder and localStorage keys (`robotstrike.*`) keep the old name on purpose — renaming the keys would wipe every player's saves.
 
 Live: https://wajahatahmed82.github.io/vault-nine/  (repo `wajahatahmed82/vault-nine`; old `robot-strike` Pages URL redirects)
 
@@ -74,7 +74,7 @@ Live: https://wajahatahmed82.github.io/vault-nine/  (repo `wajahatahmed82/vault-
 - **Local fan-out steering fights planned paths.** Soldiers following a nav path skip the 0.9 m fan-out probe (`onPath` in enemies.js); with it they were pushed out of every narrow gap.
 - **Indoor AI timings are too short for streets.** SEARCH gave up after 9 s; town soldiers (`townSearch`) keep looking for 20 s.
 - **Shell scripts with apostrophes break the Bash tool's heredoc.** Write patch scripts to a file first (story text has apostrophes).
-- **CC0 photo textures arrive after the town is built.** `applyCC0` (texgen.js) decodes them async and writes into the existing DataArrayTextures; tile sizes in `FACADE_TILE`/`ROOF_TILE`/`GROUND_TILE` are already set for the photos (`[u, v]` where the source is not square). Arrays are 512 px on desktop, 256 on phones (`OUT`).
+- **CC0 photo textures arrive after the town is built.** `applyCC0` (texgen.js) loads `docs/assets/mat/<id>_{c,n,rh}.jpg` async and writes into the existing DataArrayTextures; layers a photo replaces are not drawn by `bake` (flat average colour until then, `redraw(layer)` if the photo fails). Tile sizes in `FACADE_TILE`/`ROOF_TILE`/`GROUND_TILE` are set for the photos (`[u, v]` where the source is not square). Arrays are 512 px on desktop, 256 on phones (`OUT`).
 - **Bloom threshold must follow time of day.** At 1.05 sunlit pale paving glowed by day; `GRADES[...].bloom` is 1.9 day, 1.2 dusk, 1.0 night.
 
 ## Verifying changes
@@ -244,6 +244,22 @@ Soldiers are Microsoft Rocketbox avatars (MIT) driven by Quaternius UAL motion c
 - **Thighs hang off `Bip01_Spine` in this rig.** Twist only Spine1/Spine2 or the legs turn with the chest.
 - **The viewmodel's handguard is out of a real arm's reach.** Carried guns are 85% size with the support hand on the handguard's rear; FPArms are 1.15x, bladed 0.35 rad, and slide the support hand back when still short.
 - **Bone matrices are uploaded every frame for people** even when the distance LOD holds the pose (every 2nd/3rd/6th frame past 16/26/50 m): they are world space, so a skipped upload leaves the body behind a moving root.
+
+## Real buildings and streets (graphics prompt 2, Phase 3)
+
+Props, furniture and plants are Poly Haven scans built by `tools/propbuild.mjs` (gltf-transform: join, weld, simplify to the `BUDGET` table, KTX2 textures, meshopt) into `docs/assets/props/<file>{_lo}.glb`. `src/models.js` holds `KINDS` (a file plus a node regex, recentred, parts merged per material) and `KindInstances`: one InstancedMesh per kind part for the whole town, refilled with the placements inside the kind's `VIEW` distance when the camera moves 6 m (trees swap to `_far` versions 80-420 m). Town code places with `P.place(kind, x, y, z, rot, s, sy, col, sx)` into `chunk.placements`; buildings get `b.place`. Box stand-ins go in each chunk's `props` buffer and hide once `modelsReady()`. Cars are lofted in code (`src/cars.js`), trees grown with ez-tree (`src/trees.js`), grass tufts round the camera (`src/grass.js`).
+
+Materials: `tools/matbuild.mjs` packs ambientCG zips into colour / normal / `_rh` (R rough, G height, B AO) JPEGs and `_d.webp` decals. `townmat.js` does parallax occlusion (height in albedo alpha, 14 steps, fades 14-24 m, off on phones) and moss/damp at wall feet. `src/towndecals.js` is one 4x4 atlas (grime, cracks, posters, graffiti, patches, manholes, drain, oil) drawn into each chunk's `decal` buffer. Interiors (`makeEnterable`, town.js) place furniture models with `model(...)`; `stand(item(...))` keeps the box as collider and stand-in.
+
+    const s = await import('/tools/routeshots.js'); await s.capture(__rs, 'route')   // a shot per walk-route waypoint (needs tools/shotsrv.js and ?capture)
+    __rs.loadTimes   // town / models / modelsOn / humans, ms since navigation
+
+- **New dressing must not draw from the town's shared random stream `r`.** One extra `r()` reshuffles every later car and prop: a parked car landed on the drive test's waypoint and a van closed the rooftop marksman's sightline. Use `PR.hash01(x, z, k)` or a local `rng(seed)`; a replacement for old code must take exactly as many draws (the grown tree keeps the old tree's one).
+- **Colliders taller than knee height must keep their Phase 2 size unless the routes are re-checked.** Wider tree trunks and canopy columns, a 2 m van and a street cabinet each broke a test sightline or route.
+- **Bench colliders were a 1.8 m square whatever the rotation**, closing most of a pavement; they now follow the model's footprint.
+- **The walk-test probe never stopped strafing once it started** and circled the target into a bench; it now walks straight again once closing in with a clear line ahead.
+- **Hanging signs need one face per side**, each reading left to right from its side, 2.4 cm apart; two coplanar double-sided quads showed mirrored text.
+- **Decal quads on roads take the terrain height per corner**; one height for the whole quad buried half of it on slopes.
 
 ## Mobile and Android
 

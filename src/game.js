@@ -1172,7 +1172,11 @@ export class Game {
   // buffer, so the weapon's lights cost nothing on world pixels and the barrel
   // can never clip through a wall.
   render() {
-    if (this.town) this.town.update(this.camera.position);
+    if (this.town) {
+      const d = this.camera.getWorldDirection(this._camDir || (this._camDir = new THREE.Vector3()));
+      const l = Math.hypot(d.x, d.z) || 1;
+      this.town.update(this.camera.position, undefined, { x: d.x / l, z: d.z / l });
+    }
     if (this.post && this.atmos) {
       const A = this.atmos.state, T = A.T;
       const rain = A.weather === 'rain' ? 0.25 : 1;

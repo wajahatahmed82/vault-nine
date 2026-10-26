@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as audio from './audio.js';
 import { CFG, DIFFICULTY } from './config.js';
 import { Robot } from './enemies.js';
@@ -188,6 +189,53 @@ const STORY = {
     ],
   },
 };
+
+// Frames, rails and fittings on a door or gate leaf, as children of the leaf
+// so they hide and show with it. The leaf itself stays the bullet blocker
+// (blockers are raycast without children). A gate gets a tube frame, a mid
+// rail, bars and a hazard-striped bottom rail; a door a proud frame, two
+// panel mouldings each side, a push bar and a kick plate.
+const DOOR_DARK = new THREE.MeshStandardMaterial({ color: 0x22252a, roughness: 0.6, metalness: 0.3 });
+const DOOR_YELLOW = new THREE.MeshStandardMaterial({ color: 0xc8a018, roughness: 0.7 });
+function doorDetail(leaf, len, axis, mat, gate) {
+  // boxes gathered per material and merged: one draw each, not one per bar
+  const by = new Map();
+  const add = (sx, sy, sz, x, y, z, m) => {
+    const geo = new THREE.BoxGeometry(...(axis === 'z' ? [sz, sy, sx] : [sx, sy, sz]));
+    if (axis === 'z') geo.translate(z, y, x); else geo.translate(x, y, z);
+    const k = m || mat;
+    if (!by.has(k)) by.set(k, []);
+    by.get(k).push(geo);
+  };
+  const H = 2.3, dark = DOOR_DARK;
+  if (gate) {
+    const yel = DOOR_YELLOW;
+    for (const sz of [-1, 1]) {
+      add(len, 0.1, 0.1, 0, H / 2 - 0.05, sz * 0.13);
+      add(len, 0.08, 0.08, 0, 0.1, sz * 0.13);
+      add(len, 0.18, 0.04, 0, -H / 2 + 0.12, sz * 0.13, yel);
+      for (let k = 0; k < 7; k++) add(0.18, 0.04, 0.045, -len / 2 + 0.25 + k * (len - 0.5) / 6, -H / 2 + 0.12, sz * 0.155, dark);
+      for (const e of [-1, 1]) add(0.1, H, 0.1, e * (len / 2 - 0.05), 0, sz * 0.13);
+      for (let xx = -len / 2 + 0.3; xx < len / 2 - 0.2; xx += 0.22) add(0.03, H - 0.3, 0.03, xx, 0.02, sz * 0.13, dark);
+    }
+    for (const e of [-1, 1]) add(0.22, 0.22, 0.34, e * (len / 2 - 0.6), -H / 2 - 0.02, 0, dark);   // runner wheels
+  } else {
+    for (const sz of [-1, 1]) {
+      add(len + 0.14, 0.08, 0.06, 0, H / 2 + 0.02, sz * 0.12);
+      for (const e of [-1, 1]) add(0.08, H + 0.1, 0.06, e * (len / 2 + 0.03), 0, sz * 0.12);
+      add(len * 0.62, 0.8, 0.02, 0, 0.45, sz * 0.12);
+      add(len * 0.62, 0.7, 0.02, 0, -0.55, sz * 0.12);
+      add(len * 0.5, 0.05, 0.05, 0, -0.05, sz * 0.15, dark);
+      add(len * 0.9, 0.22, 0.015, 0, -H / 2 + 0.13, sz * 0.118, dark);
+    }
+  }
+  for (const [m, list] of by) {
+    const mesh = new THREE.Mesh(mergeGeometries(list), m);
+    mesh.castShadow = true;
+    leaf.add(mesh);
+    for (const g of list) g.dispose();
+  }
+}
 
 export class Campaign {
   constructor(game) {
@@ -502,6 +550,7 @@ export class Campaign {
     const mesh = new THREE.Mesh(geo, g.mats.steel);
     mesh.position.set(x, yy + 1.15, z);
     mesh.castShadow = true;
+    doorDetail(mesh, w * 1.5, axis, g.mats.paintMetal || g.mats.steel, w >= 4);
     g.scene.add(mesh);
     // A shut door has to stop bullets too. Raycasts ignore visibility, so an
     // opened door must also leave this list or it keeps blocking shots.

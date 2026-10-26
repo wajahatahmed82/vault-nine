@@ -133,7 +133,7 @@ export function run(rs, opts = {}) {
     const startX = p.x, startZ = p.z;
     let t = 0, reached = false, minD = Infinity;
     let stuckFor = 0, lastD = Infinity;
-    let slideDir = 1, slideFlips = 0;
+    let slideDir = 1, slideFlips = 0, closing = 0;
 
     while (t < maxSeconds) {
       const dx = tx - p.x, dz = tz - p.z;
@@ -155,6 +155,15 @@ export function run(rs, opts = {}) {
         stuckFor += 1 / 60;
         if (stuckFor > 1.6) { slideDir = -slideDir; stuckFor = 0.3; slideFlips++; }
       } else if (!strafing) stuckFor = 0;
+      // Once round the obstacle, closing again and with a clear line ahead,
+      // walk straight at the target. Without this a strafe never ended: the
+      // probe spiralled round the target and wedged itself against a bench.
+      closing = lastD - d > 0.004 ? closing + 1 / 60 : 0;
+      if (strafing && closing > 0.5) {
+        let clear = true;
+        for (let s = 0.6; s <= 2.1 && clear; s += 0.5) if (game.blockedAt(p.x + dx / d * s, p.z + dz / d * s)) clear = false;
+        if (clear) { stuckFor = 0; closing = 0; }
+      }
       lastD = d;
       if (slideFlips > 6) break;
       t += 1 / 60;
