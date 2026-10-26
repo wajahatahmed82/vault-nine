@@ -11,6 +11,7 @@ import { ScreenFX } from './screenfx.js';
 import { createLife } from './townlife.js';
 import { loadHumans, humansReady, humansProgress, useHumans, FPArms } from './humans.js';
 import { VIEW_LAYER } from './weapons.js';
+import { loadModels } from './models.js';
 
 const canvas = document.getElementById('view');
 
@@ -247,6 +248,14 @@ requestAnimationFrame(frame);
 // mission buttons wait for them. If they cannot load, the built-in soldiers
 // stand in and the menu opens anyway.
 let humansDone = false;
+// Street props, furniture and plants (models.js) swap in for the town's
+// stand-ins as soon as they are in; the shaders compile now, not mid-game.
+const models = loadModels(renderer).then((ok) => {
+  if (!ok) return game.town.modelsAttached;
+  const r = game.town.attachModels();
+  renderer.compile(game.scene, game.camera);
+  return r;
+});
 const humans = loadHumans().then(() => {
   humansDone = true;
   if (humansReady()) game.weapons.useArms(new FPArms(VIEW_LAYER));
@@ -263,6 +272,7 @@ window.__rs = {
   spawnSoldier: (type, x, z, yaw) => game.campaign._spawn(type, x, z, { yaw: yaw || 0 }),
   audioLog: () => audio.spatialLog,
   humans,                          // resolves once the soldier models are in
+  models,                          // resolves once the street props are attached
   get humansReady() { return humansReady(); },
   useHumans,
   get renderScale() { return renderScale; },

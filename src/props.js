@@ -6,6 +6,10 @@ import { FACADE, FACADE_TILE, tile } from './texgen.js';
 // lamp or a parked car adds triangles but never a draw call. Each emitter
 // takes the chunk buffers (P), a collider sink (solid) and a world position,
 // and writes vertex-coloured geometry.
+//
+// Where a scanned model exists (models.js KINDS) the emitter also records a
+// placement with P.place, and writes its own geometry into P.props instead:
+// a stand-in that shows until the models load, and stays if they cannot.
 
 const METAL = [0.30, 0.31, 0.32];
 const DARKMETAL = [0.16, 0.16, 0.17];
@@ -13,6 +17,10 @@ const CONC = [0.62, 0.61, 0.58];
 const WOOD = [0.45, 0.33, 0.22];
 const GLASS = [0.10, 0.13, 0.15];
 const R = (cs, sn) => ({ cs, sn });
+const SB = (P) => P.props || P.trim;
+const place = (P, kind, x, y, z, rot, s) => { if (P.place) P.place(kind, x, y, z, rot || 0, s || 1); };
+// deterministic per-position choice, so a rebuild gives the same street
+const pickAt = (x, z, list) => list[Math.abs(Math.floor(x * 7.31 + z * 3.17)) % list.length];
 
 function rotBox(buf, x, y, z, sx, sy, sz, rot, col, lx = 0, lz = 0) {
   const cs = Math.cos(rot), sn = Math.sin(rot);
@@ -23,32 +31,39 @@ function cyl(buf, x, y0, z, r, h, seg, col, cap) {
   buf.cylinder(x, y0, z, r, h, seg, col, cap || 0);
 }
 
+// A cast-iron lantern post (5.6 m). The light sits in the lantern.
 export function lamp(P, solid, x, y, z, rot, lamps) {
-  rotBox(P.trim, x, y + 0.25, z, 0.32, 0.5, 0.32, rot, DARKMETAL);
-  cyl(P.trim, x, y + 0.5, z, 0.07, 5.6, 6, DARKMETAL);
-  rotBox(P.trim, x, y + 6.05, z, 0.08, 0.08, 1.4, rot, DARKMETAL, 0, 0.65);
-  rotBox(P.trim, x, y + 5.95, z, 0.36, 0.16, 0.5, rot, DARKMETAL, 0, 1.3);
-  const cs = Math.cos(rot), sn = Math.sin(rot);
-  lamps.push({ x: x + 1.3 * sn, y: y + 5.84, z: z + 1.3 * cs, kind: 'street' });
-  solid(x - 0.16, z - 0.16, x + 0.16, z + 0.16, y - 0.5, y + 6.1, 'metal');
+  const B = SB(P);
+  cyl(B, x, y, z, 0.16, 0.7, 8, DARKMETAL, 0.06);
+  cyl(B, x, y + 0.7, z, 0.07, 4.3, 8, DARKMETAL);
+  rotBox(B, x, y + 5.0, z, 0.34, 0.55, 0.34, rot, [0.1, 0.1, 0.11]);
+  place(P, 'lampPost', x, y, z, rot);
+  lamps.push({ x, y: y + 4.98, z, kind: 'street', head: [0.2, 0.32, 0.2] });
+  solid(x - 0.16, z - 0.16, x + 0.16, z + 0.16, y - 0.5, y + 5.6, 'metal');
 }
 
-export function bench(P, solid, x, y, z, rot) {
-  rotBox(P.trim, x, y + 0.45, z, 1.8, 0.06, 0.45, rot, WOOD);
-  rotBox(P.trim, x, y + 0.75, z, 1.8, 0.4, 0.05, rot, WOOD, 0, -0.22);
-  for (const e of [-0.8, 0.8]) rotBox(P.trim, x, y + 0.22, z, 0.06, 0.45, 0.45, rot, DARKMETAL, e, 0);
+export function bench(P, solid, x, y, z, rot, kind) {
+  const B = SB(P);
+  rotBox(B, x, y + 0.45, z, 1.8, 0.06, 0.45, rot, WOOD);
+  rotBox(B, x, y + 0.75, z, 1.8, 0.4, 0.05, rot, WOOD, 0, -0.22);
+  for (const e of [-0.8, 0.8]) rotBox(B, x, y + 0.22, z, 0.06, 0.45, 0.45, rot, DARKMETAL, e, 0);
+  place(P, kind || 'bench', x, y, z, rot, kind === 'seating' ? 1 : 1.3);
   solid(x - 0.9, z - 0.9, x + 0.9, z + 0.9, y - 0.5, y + 0.5, 'wood');
 }
 
 export function bin(P, solid, x, y, z) {
-  cyl(P.trim, x, y, z, 0.28, 0.9, 8, [0.18, 0.24, 0.2]);
-  cyl(P.trim, x, y + 0.9, z, 0.31, 0.08, 8, DARKMETAL);
+  const B = SB(P);
+  cyl(B, x, y, z, 0.28, 0.9, 10, [0.18, 0.24, 0.2]);
+  cyl(B, x, y + 0.9, z, 0.31, 0.08, 10, DARKMETAL);
+  place(P, pickAt(x, z, ['bin', 'bin', 'binRust']), x, y, z, (x * 13.7 + z) % 6.28);
   solid(x - 0.3, z - 0.3, x + 0.3, z + 0.3, y - 0.5, y + 0.98, 'metal');
 }
 
 export function hydrant(P, solid, x, y, z) {
-  cyl(P.trim, x, y, z, 0.13, 0.62, 8, [0.68, 0.16, 0.12], 0.12);
-  P.trim.box(x, y + 0.42, z, 0.42, 0.1, 0.1, 1, 0, [0.68, 0.16, 0.12]);
+  const B = SB(P);
+  cyl(B, x, y, z, 0.13, 0.62, 10, [0.68, 0.16, 0.12], 0.12);
+  B.box(x, y + 0.42, z, 0.42, 0.1, 0.1, 1, 0, [0.68, 0.16, 0.12]);
+  place(P, pickAt(x, z, ['hydrant', 'hydrantOld']), x, y, z, (x * 5.1 + z * 2.3) % 6.28);
   solid(x - 0.15, z - 0.15, x + 0.15, z + 0.15, y - 0.5, y + 0.74, 'metal');
 }
 
@@ -63,10 +78,13 @@ export function bollard(P, solid, x, y, z) {
   solid(x - 0.1, z - 0.1, x + 0.1, z + 0.1, y - 0.5, y + 0.95, 'metal');
 }
 
+// Telegraph pole: one of the three scanned pole rigs (8.4 m), wires at the top.
 export function pole(P, solid, x, y, z) {
-  cyl(P.trim, x, y, z, 0.13, 8.5, 6, [0.32, 0.25, 0.18]);
-  P.trim.box(x, y + 8.0, z, 1.6, 0.1, 0.12, 1, 0, [0.32, 0.25, 0.18]);
-  solid(x - 0.14, z - 0.14, x + 0.14, z + 0.14, y - 0.5, y + 8.5, 'wood');
+  const B = SB(P);
+  cyl(B, x, y, z, 0.13, 8.4, 8, [0.32, 0.25, 0.18]);
+  B.box(x, y + 7.9, z, 1.6, 0.1, 0.12, 1, 0, [0.32, 0.25, 0.18]);
+  place(P, pickAt(x, z, ['pole2', 'pole2', 'pole1', 'pole3']), x, y, z, 0);
+  solid(x - 0.14, z - 0.14, x + 0.14, z + 0.14, y - 0.5, y + 8.4, 'wood');
   return [x, y + 8.08, z];
 }
 
@@ -91,8 +109,22 @@ export function roadSign(P, solid, x, y, z, rot, kind) {
   solid(x - 0.06, z - 0.06, x + 0.06, z + 0.06, y - 0.5, y + 2.6, 'metal');
 }
 
-// A parked car: sill, body, glasshouse, wheels, lights. ~250 triangles.
+// A parked car. In the town it is one of the generated bodies (cars.js):
+// style picked from the position, paint per car, police cars get a light
+// bar. Written as boxes only into a private buffer (the fuel-leak car in
+// townlife, which can explode) or where no placement sink exists.
+const CAR_STYLES = ['car_hatch', 'car_sedan', 'car_hatch', 'car_estate', 'car_sedan', 'car_van'];
 export function car(P, solid, x, y, z, rot, col, opts = {}) {
+  if (!opts.buf && P.place) {
+    const style = opts.police ? 'car_sedan' : pickAt(x, z, CAR_STYLES);
+    P.place(style, x, y + (opts.tilt || 0), z, rot, 1, 1, col);
+    if (opts.police) P.place('lightbar', x, y + 1.42, z, rot);
+    const L = style === 'car_van' ? 5.0 : style === 'car_hatch' ? 4.1 : 4.6, Wd = style === 'car_van' ? 1.95 : 1.8;
+    const cs = Math.cos(rot), sn = Math.sin(rot);
+    const ex = Math.abs(cs) * Wd / 2 + Math.abs(sn) * L / 2, ez = Math.abs(sn) * Wd / 2 + Math.abs(cs) * L / 2;
+    solid(x - ex, z - ez, x + ex, z + ez, y - 0.5, y + (style === 'car_van' ? 2.0 : 1.4), 'car', opts.ref);
+    return;
+  }
   const buf = opts.buf || P.trim;
   const L = opts.len || 4.3, Wd = 1.8;
   const tilt = opts.tilt || 0;
@@ -126,10 +158,14 @@ export function car(P, solid, x, y, z, rot, col, opts = {}) {
   solid(x - ex, z - ez, x + ex, z + ez, y - 0.5, y + 1.4, 'car', opts.ref);
 }
 
+// Roadblock: two concrete barrier sections end to end (2.5 m).
 export function barrier(P, solid, x, y, z, rot) {
-  rotBox(P.trim, x, y + 0.85, z, 2.4, 0.22, 0.08, rot, [0.9, 0.88, 0.84]);
-  for (const s of [-0.8, -0.2, 0.4]) rotBox(P.trim, x, y + 0.85, z, 0.3, 0.22, 0.09, rot, [0.75, 0.12, 0.1], s, 0);
-  for (const e of [-1.1, 1.1]) rotBox(P.trim, x, y + 0.42, z, 0.06, 0.84, 0.5, rot, METAL, e, 0);
+  const B = SB(P);
+  rotBox(B, x, y + 0.85, z, 2.4, 0.22, 0.08, rot, [0.9, 0.88, 0.84]);
+  for (const s of [-0.8, -0.2, 0.4]) rotBox(B, x, y + 0.85, z, 0.3, 0.22, 0.09, rot, [0.75, 0.12, 0.1], s, 0);
+  for (const e of [-1.1, 1.1]) rotBox(B, x, y + 0.42, z, 0.06, 0.84, 0.5, rot, METAL, e, 0);
+  const bc = Math.cos(rot), bs = Math.sin(rot);
+  for (const o of [-0.78, 0.78]) place(P, 'barrier', x + o * bc, y, z - o * bs, rot + (o > 0 ? Math.PI : 0));
   const cs = Math.abs(Math.cos(rot)), sn = Math.abs(Math.sin(rot));
   solid(x - 1.2 * cs - 0.2 * sn, z - 1.2 * sn - 0.2 * cs, x + 1.2 * cs + 0.2 * sn, z + 1.2 * sn + 0.2 * cs, y - 0.5, y + 1.0, 'wood');
 }
@@ -139,7 +175,8 @@ export function cone(P, x, y, z) {
 }
 
 export function drum(P, solid, x, y, z, col) {
-  cyl(P.trim, x, y, z, 0.3, 0.88, 8, col || [0.2, 0.32, 0.5]);
+  cyl(SB(P), x, y, z, 0.3, 0.88, 10, col || [0.2, 0.32, 0.5]);
+  place(P, col ? 'barrelB' : 'barrel', x, y, z, (x * 3.3 + z * 7.1) % 6.28);
   solid(x - 0.3, z - 0.3, x + 0.3, z + 0.3, y - 0.5, y + 0.88, 'metal');
 }
 
@@ -161,17 +198,31 @@ export function litter(P, x, y, z, r) {
   const cs = Math.cos(a) * s, sn = Math.sin(a) * s;
   P.trim.quad([x - cs, y + 0.02, z - sn], [x + sn, y + 0.02, z - cs], [x + cs, y + 0.02, z + sn], [x - sn, y + 0.02, z + cs],
     [0, 1, 0], [c, c * 0.98, c * 0.92]);
+  // now and then something bigger: a crushed box, a weed, an old tyre
+  const k = r();
+  if (k < 0.12) place(P, 'box', x + 0.3, y, z, a);
+  else if (k < 0.3) place(P, k < 0.21 ? 'weed' : 'weedB', x - 0.2, y, z + 0.1, a);
+  else if (k < 0.33) place(P, 'tyre', x + 0.4, y + 0.08, z, a, 1);
 }
 
 export function manhole(P, x, y, z) {
   P.trim.box(x, y + 0.075, z, 0.8, 0.02, 0.8, 1, 0, [0.14, 0.14, 0.15]);
 }
 
+// A hedge: a dark core so it never shows daylight through, with grown bushes
+// (trees.js 'bush') shoulder to shoulder along it for the leafy surface.
 export function hedge(P, solid, x1, z1, x2, z2, y, h) {
   const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
   const sx = Math.max(0.8, Math.abs(x2 - x1)), sz = Math.max(0.8, Math.abs(z2 - z1));
   P.foliage.B = y;
-  P.foliage.box(mx, y + h / 2, mz, sx, h, sz, 1, 0, [0.18, 0.28, 0.14]);
+  P.foliage.box(mx, y + h * 0.42, mz, sx * 0.86, h * 0.84, sz * 0.7, 1, 0, [0.1, 0.16, 0.08]);
+  if (P.place) {
+    const along = sx > sz, len = along ? sx : sz, n = Math.max(1, Math.round(len / 1.1));
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n - 0.5;
+      P.place('bush', along ? mx + t * len : mx, y - 0.05, along ? mz : mz + t * len, (i * 2.39 + mx) % 6.28, (h / 1.7) * (0.95 + ((i * 7) % 3) * 0.05));
+    }
+  }
   solid(mx - sx / 2, mz - sz / 2, mx + sx / 2, mz + sz / 2, y - 0.5, y + h, 'wood');
 }
 
@@ -184,9 +235,18 @@ export function lowWall(P, solid, x1, z1, x2, z2, y, h) {
   solid(mx - sx / 2, mz - sz / 2, mx + sx / 2, mz + sz / 2, y - 0.5, y + h + 0.08, 'masonry');
 }
 
-// Trees, written into the always-visible foliage buffer. `aobase` carries the
-// tree's foot height so the foliage shader sways crowns, not trunks.
+// Trees. Inside the playable area (collide) they are grown trees (trees.js)
+// placed as model kinds; the hillside forest beyond stays these cheap cone
+// and blob trees, written into the always-visible foliage buffer, where
+// `aobase` carries the tree's foot height so the shader sways crowns.
+const DECIDUOUS = ['tree_oak', 'tree_ash', 'tree_aspen', 'tree_oak'];
 export function tree(P, solid, x, y, z, s, kind, r, collide = true) {
+  if (collide && P.place) {
+    const k = kind === 'conifer' ? (s < 1.05 ? 'tree_pineS' : 'tree_pine') : pickAt(x, z, DECIDUOUS);
+    P.place(k, x, y - 0.05, z, r() * Math.PI * 2, 0.75 + s * 0.3);
+    solid(x - 0.25 * s, z - 0.25 * s, x + 0.25 * s, z + 0.25 * s, y - 0.5, y + 3 * s, 'wood');
+    return;
+  }
   const F = P.foliage;
   F.B = y;
   const trunk = [0.30, 0.23, 0.16];
@@ -261,4 +321,4 @@ export const COLOURS = {
   car: [[0.55, 0.1, 0.08], [0.12, 0.2, 0.36], [0.62, 0.62, 0.6], [0.16, 0.16, 0.17], [0.85, 0.84, 0.8],
         [0.2, 0.33, 0.24], [0.5, 0.42, 0.25], [0.36, 0.38, 0.4]],
 };
-export { R };
+export { R, place, pickAt };

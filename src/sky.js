@@ -181,7 +181,8 @@ export function createAtmosphere(game, renderer, opts = {}) {
   const heads = new THREE.InstancedMesh(headGeo, headMat, lampsAll.length);
   const m4 = new THREE.Matrix4();
   lampsAll.forEach((l, i) => {
-    const s = l.kind === 'indoor' ? [3.2, 0.6, 0.8] : l.kind === 'signal' ? [0.6, 2.2, 0.4] : [1, 1, 1];
+    const s = l.head ? [l.head[0] / 0.34, l.head[1] / 0.08, l.head[2] / 0.46]
+      : l.kind === 'indoor' ? [3.2, 0.6, 0.8] : l.kind === 'signal' ? [0.6, 2.2, 0.4] : [1, 1, 1];
     m4.makeScale(...s).setPosition(l.x, l.y, l.z);
     heads.setMatrixAt(i, m4);
     heads.setColorAt(i, new THREE.Color(0.2, 0.2, 0.2));

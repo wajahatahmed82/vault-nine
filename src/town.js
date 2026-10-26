@@ -3,12 +3,14 @@ import { GeoBuf } from './geobuf.js';
 import { terrainH, PLAY, SHELF } from './terrain.js';
 import {
   buildFacadeArray, buildRoofArray, buildGroundArray, buildSignAtlas,
-  FACADE, ROOF, GROUND, GROUND_TILE, FACADE_TILE, signIndex, tile, applyCC0,
+  FACADE, ROOF, GROUND, GROUND_TILE, FACADE_TILE, ROOF_TILE, signIndex, tile, applyCC0,
 } from './texgen.js';
-import { CC0 } from './cc0data.js';
 import { arrayMaterial, interiorGlass, clearGlass, signMaterial, SHARED } from './townmat.js';
 import { emitBuilding, KIT } from './townkit.js';
 import * as PR from './props.js';
+import { KindInstances, kind as modelKind, modelsReady } from './models.js';
+import { registerCars } from './cars.js';
+import { growTrees } from './trees.js';
 
 // Meridian Ridge, the town below the station.
 //
@@ -501,20 +503,34 @@ function layoutBlock(blk, ctx) {
 
 // ------------------------------------------------------------- the build --
 
+// Relief per texture layer in metres (how deep a joint or slab edge goes),
+// turned into texture units for the parallax march by the layer's repeat size.
+const FACADE_RELIEF = [0.014, 0.012, 0.004, 0.012, 0.02, 0.01, 0.004, 0, 0.016, 0.016, 0.018, 0.008, 0];
+const ROOF_RELIEF = [0.035, 0.012, 0.015, 0.004, 0.01];
+const GROUND_RELIEF = [0.012, 0.01, 0.004, 0.02, 0, 0.006, 0.004, 0.004];
+function depthsFor(relief, table) {
+  return relief.map((m, i) => {
+    const t = table[i];
+    return m / (Array.isArray(t) ? (t[0] + t[1]) / 2 : t);
+  });
+}
+
 export function buildTown(scene, mats) {
   const t0 = performance.now();
+  registerCars();
+  growTrees();
   const blocks = makeBlocks();
 
   const arr = { facade: buildFacadeArray(), roof: buildRoofArray(), ground: buildGroundArray() };
   const atlas = buildSignAtlas();
   const mat = {
-    walls: arrayMaterial(arr.facade, { normalScale: 1.2 }),
-    roof: arrayMaterial(arr.roof, { side: THREE.DoubleSide }),
+    walls: arrayMaterial(arr.facade, { normalScale: 1.2, mossLayer: FACADE.moss, depths: depthsFor(FACADE_RELIEF, FACADE_TILE) }),
+    roof: arrayMaterial(arr.roof, { side: THREE.DoubleSide, depths: depthsFor(ROOF_RELIEF, ROOF_TILE) }),
     trim: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.02 }),
     glass: interiorGlass(),
     clear: clearGlass(),
     signs: signMaterial(atlas),
-    ground: arrayMaterial(arr.ground, { wetLayer: GROUND.asphalt }),
+    ground: arrayMaterial(arr.ground, { wetLayer: GROUND.asphalt, depths: depthsFor(GROUND_RELIEF, GROUND_TILE) }),
     foliage: foliageMaterial(),
   };
   const texMs = Math.round(performance.now() - t0);
@@ -522,6 +538,7 @@ export function buildTown(scene, mats) {
   const newBufs = () => ({
     walls: new GeoBuf({ layer: true, base: true }), roof: new GeoBuf({ layer: true, base: true }),
     trim: new GeoBuf(), glass: new GeoBuf({ win: true }), signs: new GeoBuf(), clear: new GeoBuf(),
+    props: new GeoBuf(),
   });
   const chunks = new Map();
   const chunkOf = (x, z) => {
@@ -530,7 +547,7 @@ export function buildTown(scene, mats) {
     let c = chunks.get(k);
     if (!c) {
       c = { ix, iz, minX: ix * CHUNK, maxX: (ix + 1) * CHUNK, minZ: iz * CHUNK, maxZ: (iz + 1) * CHUNK,
-            near: newBufs(), keep: newBufs(),
+            near: newBufs(), keep: newBufs(), placements: [],
             ground: new GeoBuf({ layer: true, base: true }), road: new GeoBuf(), foliage: new GeoBuf({ base: true }) };
       chunks.set(k, c);
     }
@@ -563,7 +580,11 @@ export function buildTown(scene, mats) {
   };
   const P = (x, z) => {
     const c = chunkOf(x, z);
-    return { walls: c.near.walls, trim: c.near.trim, glass: c.near.glass, foliage: foliageOf(x, z), ground: c.ground };
+    return {
+      walls: c.near.walls, trim: c.near.trim, glass: c.near.glass, foliage: foliageOf(x, z), ground: c.ground,
+      props: c.near.props,
+      place: (kind, px, py, pz, rot, s, sy, col) => c.placements.push({ kind, x: px, y: py, z: pz, rot, s, sy, col }),
+    };
   };
   const lotH = (x, z) => terrainH(x, z) + LOT_RAISE;
 
@@ -630,6 +651,7 @@ export function buildTown(scene, mats) {
     for (const [k, cast] of [['walls', true], ['roof', true], ['trim', true], ['glass', false], ['signs', false]]) {
       const m = mk(c.near[k], mat[k], cast); if (m) c.detail.add(m);
     }
+    c.standIn = mk(c.near.props, mat.trim, true); if (c.standIn) c.detail.add(c.standIn);
     const gm = mk(c.ground, mat.ground, false); if (gm) c.baseG.add(gm);
     group.add(c.detail, c.baseG);
     c.near = c.keep = c.ground = c.road = c.foliage = null;
@@ -690,6 +712,32 @@ export function buildTown(scene, mats) {
       return null;
     },
     byTag(tag) { return buildings.find((b) => b.tag === tag); },
+    // Models (models.js): one KindInstances per kind for the whole town, each
+    // refilled with the placements within its view distance as the camera
+    // moves (per 80 m chunk it was 800 meshes, a draw call each; per 160 m
+    // cell, every tree and hedge bush in range was drawn at full detail: 6.2M
+    // triangles). Called once when the town is built (generated cars, trees)
+    // and again when the scanned props arrive; each call adds the kinds that
+    // are new. The stand-ins hide once the scans are in.
+    attachModels() {
+      if (!this.kindSets) {
+        this.kindSets = new Map();
+        this.modelsG = new THREE.Group(); this.modelsG.name = 'props';
+        this.group.add(this.modelsG);
+      }
+      const byKind = new Map();
+      for (const c of this.chunks) for (const p of c.placements) {
+        if (this.kindSets.has(p.kind) || !modelKind(p.kind)) continue;
+        if (!byKind.has(p.kind)) byKind.set(p.kind, []);
+        byKind.get(p.kind).push(p);
+      }
+      for (const [k, list] of byKind) this.kindSets.set(k, new KindInstances(k, list, this.modelsG));
+      if (modelsReady()) for (const c of this.chunks) if (c.standIn) c.standIn.visible = false;
+      let placed = 0;
+      for (const ks of this.kindSets.values()) placed += ks.list.length;
+      this.modelsAttached = { kinds: this.kindSets.size, meshes: this.modelsG.children.length, placed };
+      return this.modelsAttached;
+    },
     // What the ground is made of at (x, z), for footstep sounds.
     groundKind(x, z, y) {
       if (y !== undefined && this.indoorAt(x, z, y)) return 'wood';
@@ -723,12 +771,14 @@ export function buildTown(scene, mats) {
         const dz = Math.max(c.minZ - cam.z, 0, cam.z - c.maxZ);
         c.detail.visible = dx * dx + dz * dz < d2;
       }
+      if (this.kindSets) for (const ks of this.kindSets.values()) ks.update(cam, d === Infinity ? 'all' : false);
     },
   };
+  town.attachModels();   // the generated cars; the scans follow when loaded
   town.buildMs = Math.round(performance.now() - t0);
-  // CC0 photo textures replace their procedural layers once decoded (a few
-  // hundred ms, during the menu). If decoding fails the procedural ones stay.
-  town.cc0Ready = applyCC0(arr, CC0).then((n) => { town.cc0Applied = n; return n; })
+  // CC0 photo textures (docs/assets/mat) replace their procedural layers once
+  // fetched and decoded, during the menu. If they fail the procedural ones stay.
+  town.cc0Ready = applyCC0(arr).then((n) => { town.cc0Applied = n; return n; })
     .catch((e) => { console.warn('CC0 textures not applied', e); town.cc0Applied = 0; return 0; });
   return town;
 }
@@ -811,6 +861,7 @@ function emitProp(p, P, solid, H, ctx, r) {
       const N = at(p.x, p.z), y = H(p.x, p.z);
       N.trim.box(p.x, y + 0.3, p.z, 3.0, 0.6, 1.4, 1, 0, [0.6, 0.59, 0.56]);
       N.foliage.B = y; N.foliage.box(p.x, y + 0.66, p.z, 2.7, 0.14, 1.1, 1, 0, [0.22, 0.3, 0.14]);
+      for (const dx of [-0.8, 0, 0.8]) N.place('bush', p.x + dx, y + 0.6, p.z, dx * 2.1, 0.45);
       solid(p.x - 1.5, p.z - 0.7, p.x + 1.5, p.z + 0.7, y - 0.5, y + 0.6, 'masonry');
       break;
     }

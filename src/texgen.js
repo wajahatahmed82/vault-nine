@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { TOUCH_ONLY } from './input.js';
+import { fetchAsset } from './assets.js';
 
 // Texture arrays for the town.
 //
@@ -72,7 +73,8 @@ function bake(layers) {
       const k = 1 + (nz - 0.5) * grain;
       const o = li * S * S * 4 + i * 4;
       alb[o] = Math.min(255, a[i * 4] * k); alb[o + 1] = Math.min(255, a[i * 4 + 1] * k);
-      alb[o + 2] = Math.min(255, a[i * 4 + 2] * k); alb[o + 3] = 255;
+      // alpha carries height (1 = proud face, 0 = deep joint) for parallax
+      alb[o + 2] = Math.min(255, a[i * 4 + 2] * k); alb[o + 3] = Math.max(0, Math.min(255, H[i] * 255));
     }
     const st = L.nrm ?? 3;
     const at = (x, y) => H[((y + S) % S) * S + ((x + S) % S)];
@@ -175,14 +177,17 @@ function blotches(cx, r, n, col, alpha, size) {
 // ----------------------------------------------------------------- layers --
 
 // Facade layers. Metres per texture repeat in FACADE_TILE (same order).
-export const FACADE = { brickRed: 0, brickBuff: 1, render: 2, cladding: 3, stone: 4, corrugated: 5, concrete: 6, farWindows: 7 };
+export const FACADE = {
+  brickRed: 0, brickBuff: 1, render: 2, cladding: 3, stone: 4, corrugated: 5, concrete: 6, farWindows: 7,
+  brickOld: 8, brickWorks: 9, stoneGrey: 10, painted: 11, moss: 12,
+};
 // Metres per texture repeat, [u, v] where the source image is not square.
 // Layers backed by CC0 photo textures (see CC0_LAYERS) are sized to them.
-export const FACADE_TILE = [[1.5, 0.75], 1.8, 2.2, 3.0, 2.4, 1.2, [3.0, 1.5], 1.0];
+export const FACADE_TILE = [[1.5, 0.75], 1.0, 2.2, 3.0, 1.6, 1.2, [3.0, 1.5], 1.0, 1.35, 1.2, 2.0, 1.6, 2.0];
 export const ROOF = { tiles: 0, slate: 1, corrugated: 2, felt: 3, shingles: 4 };
-export const ROOF_TILE = [1.2, 2.0, 1.2, 3.0, 3.0];
-export const GROUND = { slabs: 0, grass: 1, concrete: 2, setts: 3, paint: 4, gravel: 5, asphalt: 6 };
-export const GROUND_TILE = [2.4, 2.5, [4.0, 2.0], [1.6, 3.2], 1.0, 3.0, 3.0];
+export const ROOF_TILE = [1.8, 2.0, 1.2, 3.0, 3.0];
+export const GROUND = { slabs: 0, grass: 1, concrete: 2, setts: 3, paint: 4, gravel: 5, asphalt: 6, roadWorn: 7 };
+export const GROUND_TILE = [2.4, 2.5, [4.0, 2.0], [1.6, 3.2], 1.0, 3.0, 3.0, 3.0];
 
 // Set a buffer's UV scale for a layer from one of the tables above.
 export function tile(buf, table, layer) {
@@ -247,6 +252,25 @@ export function buildFacadeArray() {
       cx.fillStyle = rgb(38, 46, 54); cx.fillRect(x0, y0, w, h);
       cx.fillStyle = rgb(70, 82, 92); cx.fillRect(x0, y0, w, h * 0.35);
       hx.fillStyle = grey(40); hx.fillRect(x0, y0, w, h);
+    } },
+    // Photo-backed layers (CC0_LAYERS); these stand in for the moment before
+    // the files arrive, or for good if they cannot load.
+    { rough: 0.92, nrm: 4, draw: (cx, hx, r) => {   // old brick
+      courses(cx, hx, r, 42, 14, 2.4, (r) => { const v = r(); return [118 + v * 40, 56 + v * 20, 44 + v * 14]; }, rgb(150, 142, 128));
+    } },
+    { rough: 0.92, nrm: 4, draw: (cx, hx, r) => {   // works brick
+      courses(cx, hx, r, 46, 16, 2.6, (r) => { const v = r(); return [170 + v * 30, 92 + v * 22, 70 + v * 14]; }, rgb(188, 176, 158));
+    } },
+    { rough: 0.9, nrm: 4, draw: (cx, hx, r) => {   // grey ashlar
+      courses(cx, hx, r, 74, 26, 3, (r) => { const v = r(); return [150 + v * 18, 152 + v * 18, 154 + v * 18]; }, rgb(110, 110, 112), { bevel: true });
+    } },
+    { rough: 0.85, nrm: 2, draw: (cx, hx, r) => {   // painted brick
+      courses(cx, hx, r, 40, 13, 1.6, () => [176, 186, 192], rgb(168, 178, 184), { face: 150 });
+    } },
+    { rough: 1.0, nrm: 3, grain: 0.35, draw: (cx, hx, r) => {   // moss
+      cx.fillStyle = rgb(74, 98, 40); cx.fillRect(0, 0, TEX, TEX);
+      blotches(cx, r, 30, '40,60,20', 0.4, 30);
+      hx.fillStyle = grey(140); hx.fillRect(0, 0, TEX, TEX);
     } },
   ]);
 }
@@ -343,6 +367,11 @@ export function buildGroundArray() {
         cx.stroke(); hx.stroke();
       }
     } },
+    { rough: 0.95, nrm: 2, grain: 0.3, draw: (cx, hx, r) => {   // worn side-road tarmac (photo-backed)
+      cx.fillStyle = rgb(66, 66, 66); cx.fillRect(0, 0, TEX, TEX);
+      blotches(cx, r, 14, '30,28,26', 0.3, 34);
+      hx.fillStyle = grey(140); hx.fillRect(0, 0, TEX, TEX);
+    } },
   ]);
 }
 
@@ -386,44 +415,61 @@ export const GLOW_CELL = SIGNS.indexOf('');
 
 // ---------------------------------------------------------------- CC0 --
 
-// CC0 photo textures from ambientCG (see ASSETS.md), downscaled to 512 px and
-// embedded in cc0data.js. They replace the procedural layer of the same
-// name once decoded; until then (a moment at load) the procedural one shows.
+// CC0 photo textures from ambientCG (see ASSETS.md), built by
+// tools/matbuild.mjs into docs/assets/mat/: colour, normal, and one map with
+// roughness (R), height (G) and ambient occlusion (B); 512 px on desktop, 256
+// on phones (the _lo files). Loaded after the town is built, each replaces the
+// procedural layer of the same name, which shows until then (or for good if
+// the files cannot load). Height goes into the albedo alpha for parallax.
 export const CC0_LAYERS = {
-  facade: { brickRed: 'Bricks104', render: 'Plaster001', cladding: 'WoodSiding008', concrete: 'Concrete034' },
-  roof: { slate: 'RoofingTiles003', shingles: 'RoofingTiles013A' },
-  ground: { grass: 'Grass005', concrete: 'Concrete034', setts: 'PavingStones138', asphalt: 'Asphalt033' },
+  facade: {
+    brickRed: 'Bricks104', brickBuff: 'Bricks103', render: 'Plaster001', cladding: 'WoodSiding008', stone: 'Bricks110A',
+    concrete: 'Concrete034', brickOld: 'Bricks097', brickWorks: 'Bricks090', stoneGrey: 'Bricks066', painted: 'PaintedBricks004',
+    moss: 'Moss002',
+  },
+  roof: { tiles: 'RoofingTiles012A', slate: 'RoofingTiles003', shingles: 'RoofingTiles013A' },
+  ground: {
+    slabs: 'PavingStones136', grass: 'Grass005', concrete: 'Concrete034', setts: 'PavingStones138',
+    asphalt: 'Asphalt033', roadWorn: 'Road012A',
+  },
 };
 
-async function decode(url) {
-  const img = new Image();
-  img.src = url;
-  await img.decode();
-  return img;
+async function image(path) {
+  const buf = await fetchAsset(path);
+  return createImageBitmap(new Blob([buf], { type: 'image/jpeg' }));
 }
 
-export async function applyCC0(arrays, data) {
+export async function applyCC0(arrays) {
   const c = document.createElement('canvas'); c.width = c.height = OUT;
   const g = c.getContext('2d', { willReadFrequently: true });
   const read = (img) => { g.clearRect(0, 0, OUT, OUT); g.drawImage(img, 0, 0, OUT, OUT); return g.getImageData(0, 0, OUT, OUT).data; };
   const index = { facade: FACADE, roof: ROOF, ground: GROUND };
+  const sfx = OUT <= 256 ? '_lo' : '';
   let applied = 0;
   for (const [kind, map] of Object.entries(CC0_LAYERS)) {
     const arr = arrays[kind];
     if (!arr) continue;
     for (const [layerName, asset] of Object.entries(map)) {
-      const d = data[asset];
-      if (!d) continue;
-      const [col, nrm, rgh] = await Promise.all([decode(d.color), decode(d.normal), decode(d.rough)]);
+      let col, nrm, rh;
+      try {
+        [col, nrm, rh] = await Promise.all(['c', 'n', 'rh'].map((k) => image(`assets/mat/${asset}_${k}${sfx}.jpg`)));
+      } catch (e) {
+        console.warn('texture not loaded', asset, e.message);
+        continue;
+      }
       const L = index[kind][layerName];
       const base = L * OUT * OUT * 4;
       const A = arr.albedo.image.data, NR = arr.normalRough.image.data;
-      const cp = read(col);
-      for (let i = 0; i < OUT * OUT * 4; i++) A[base + i] = cp[i];
+      const cp = read(col), hp = read(rh);
+      for (let i = 0; i < OUT * OUT; i++) {
+        // ambient occlusion folded gently into the colour
+        const ao = 0.55 + 0.45 * hp[i * 4 + 2] / 255;
+        A[base + i * 4] = cp[i * 4] * ao; A[base + i * 4 + 1] = cp[i * 4 + 1] * ao; A[base + i * 4 + 2] = cp[i * 4 + 2] * ao;
+        A[base + i * 4 + 3] = hp[i * 4 + 1];
+        NR[base + i * 4 + 3] = hp[i * 4];
+      }
       const np = read(nrm);
       for (let i = 0; i < OUT * OUT; i++) { NR[base + i * 4] = np[i * 4]; NR[base + i * 4 + 1] = np[i * 4 + 1]; NR[base + i * 4 + 2] = np[i * 4 + 2]; }
-      const rp = read(rgh);
-      for (let i = 0; i < OUT * OUT; i++) NR[base + i * 4 + 3] = rp[i * 4];
       applied++;
     }
     arr.albedo.needsUpdate = true;

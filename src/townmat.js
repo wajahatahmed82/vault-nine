@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { TOUCH_ONLY } from './input.js';
 
 // Town materials: shader patches on MeshStandardMaterial, so the town keeps
 // three.js lighting, shadows, fog and the environment map, and only adds what
@@ -27,8 +28,48 @@ dummy.needsUpdate = true;
 const dummyN = new THREE.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
 dummyN.needsUpdate = true;
 
+// Parallax occlusion: each array layer carries height in its albedo alpha,
+// and walls, roofs and paving are stepped into along the view ray so joints,
+// courses and slab edges have real depth as you move past. `depths` gives the
+// depth per layer in texture units (metres of relief / metres per repeat);
+// 0 skips the march. Faded out from 14 to 24 m, where it stops showing, and
+// left out entirely on phones.
+const POM = !TOUCH_ONLY;
+const POM_SRC = `
+  {
+    int li = int( vLayer + 0.5 );
+    float depth = uDepth[ li ];
+    float fade = 1.0 - smoothstep( 14.0, 24.0, length( vViewPosition ) );
+    if ( depth > 0.0 && fade > 0.0 ) {
+      mat3 tf = getTangentFrame( - vViewPosition, normalize( vNormal ), vMapUv );
+      vec3 V = normalize( vViewPosition );
+      vec3 vt = normalize( vec3( dot( V, tf[ 0 ] ), dot( V, tf[ 1 ] ), dot( V, tf[ 2 ] ) ) );
+      vec2 gx = dFdx( vMapUv ), gy = dFdy( vMapUv );
+      float n = mix( 14.0, 5.0, abs( vt.z ) );
+      float stp = 1.0 / n;
+      vec2 dUv = vt.xy / max( vt.z, 0.25 ) * depth * fade * stp;
+      float cur = 0.0;
+      vec2 uv = vMapUv;
+      float d = 1.0 - textureGrad( tAlb, vec3( uv, vLayer ), gx, gy ).a;
+      for ( int i = 0; i < 14; i ++ ) {
+        if ( cur >= d ) break;
+        uv -= dUv;
+        d = 1.0 - textureGrad( tAlb, vec3( uv, vLayer ), gx, gy ).a;
+        cur += stp;
+      }
+      vec2 prev = uv + dUv;
+      float after = d - cur;
+      float before = ( 1.0 - textureGrad( tAlb, vec3( prev, vLayer ), gx, gy ).a ) - cur + stp;
+      pUv = mix( uv, prev, after / ( after - before + 1e-5 ) );
+    }
+  }`;
+
 export function arrayMaterial(arr, opts = {}) {
   const wetLayer = opts.wetLayer ?? -1;
+  const mossLayer = opts.mossLayer ?? -1;
+  const depths = new Float32Array(16);
+  if (opts.depths) depths.set(opts.depths.slice(0, 16));
+  const pom = POM && !!opts.depths;
   const m = new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: opts.roughness ?? 1, metalness: opts.metalness ?? 0,
     side: opts.side ?? THREE.FrontSide,
@@ -39,13 +80,27 @@ export function arrayMaterial(arr, opts = {}) {
     sh.uniforms.tAlb = { value: arr.albedo };
     sh.uniforms.tNR = { value: arr.normalRough };
     sh.uniforms.uWet = SHARED.uWet;
+    sh.uniforms.uDepth = { value: depths };
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float layer;\nattribute float aobase;\nvarying float vLayer;\nvarying float vAo;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLayer = layer;\nvAo = position.y - aobase;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform highp sampler2DArray tAlb;\nuniform highp sampler2DArray tNR;\nuniform float uWet;\nvarying float vLayer;\nvarying float vAo;')
-      .replace('#include <map_fragment>', 'vec4 sampledDiffuseColor = texture( tAlb, vec3( vMapUv, vLayer ) );\ndiffuseColor *= sampledDiffuseColor;')
-      .replace('#include <roughnessmap_fragment>', `float roughnessFactor = roughness * texture( tNR, vec3( vMapUv, vLayer ) ).a;
+      .replace('#include <common>', '#include <common>\nuniform highp sampler2DArray tAlb;\nuniform highp sampler2DArray tNR;\nuniform float uWet;\nuniform float uDepth[ 16 ];\nvarying float vLayer;\nvarying float vAo;')
+      .replace('#include <map_fragment>', `vec2 pUv = vMapUv;
+        ${pom ? POM_SRC : ''}
+        vec4 sampledDiffuseColor = texture( tAlb, vec3( pUv, vLayer ) );
+        diffuseColor *= vec4( sampledDiffuseColor.rgb, 1.0 );
+        #if ${mossLayer} >= 0
+        {
+          // damp and moss creeping up from the foot of the wall, ragged edge
+          float nz = texture( tAlb, vec3( vMapUv * 0.37, ${mossLayer}.0 ) ).g;
+          float damp = 1.0 - smoothstep( 0.0, 0.8 + nz * 0.7, vAo );
+          float moss = 1.0 - smoothstep( 0.0, 0.25 + nz * 0.55, vAo );
+          diffuseColor.rgb *= mix( 1.0, 0.7, damp );
+          diffuseColor.rgb = mix( diffuseColor.rgb, texture( tAlb, vec3( pUv * 1.3, ${mossLayer}.0 ) ).rgb, moss * moss * 0.7 );
+        }
+        #endif`)
+      .replace('#include <roughnessmap_fragment>', `float roughnessFactor = roughness * texture( tNR, vec3( pUv, vLayer ) ).a;
         #if ${wetLayer} >= 0
         if ( uWet > 0.0 ) {
           // rain: everything darkens a little, the road goes glossy with puddles
@@ -62,14 +117,14 @@ export function arrayMaterial(arr, opts = {}) {
           diffuseColor.rgb *= mix( 1.0, mix( mix( 0.8, 0.6, road ), 0.35, pud ), uWet );
         }
         #endif`)
-      .replace('texture2D( normalMap, vNormalMapUv )', 'texture( tNR, vec3( vNormalMapUv, vLayer ) )')
+      .replace('texture2D( normalMap, vNormalMapUv )', 'texture( tNR, vec3( pUv, vLayer ) )')
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
         float cao = mix( 0.5, 1.0, smoothstep( 0.0, 1.6, vAo ) );
         reflectedLight.indirectDiffuse *= cao;
         reflectedLight.indirectSpecular *= cao;
         reflectedLight.directDiffuse *= mix( 0.75, 1.0, cao );`);
   };
-  m.customProgramCacheKey = () => 'townArray' + wetLayer;
+  m.customProgramCacheKey = () => 'townArray' + wetLayer + '|' + mossLayer + '|' + pom;
   return m;
 }
 

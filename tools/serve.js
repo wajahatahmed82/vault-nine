@@ -18,6 +18,11 @@ const TYPES = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.wasm': 'application/wasm',
+  '.glb': 'model/gltf-binary',
+  '.ktx2': 'image/ktx2',
 };
 
 http.createServer((req, res) => {
