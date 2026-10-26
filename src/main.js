@@ -257,15 +257,20 @@ const models = loadModels(renderer).then((ok) => {
   if (!ok) return game.town.modelsAttached;
   const r = game.town.attachModels();
   renderer.compile(game.scene, game.camera);
-  // upload every model texture now: each kind's first appearance otherwise
-  // stalls a frame while its KTX2 maps go to the GPU
-  const seen = new Set();
+  // upload the model textures ahead of use, a few per frame (all at once
+  // froze the menu for 5 s): otherwise each kind's first appearance stalls a
+  // frame while its KTX2 maps go to the GPU
+  const seen = new Set(), queue = [];
   game.town.modelsG.traverse((o) => {
     const m = o.material;
     if (!m || seen.has(m)) return;
     seen.add(m);
-    for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap']) if (m[k]) renderer.initTexture(m[k]);
+    for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap']) if (m[k]) queue.push(m[k]);
   });
+  (function pump() {
+    for (let i = 0; i < 3 && queue.length; i++) renderer.initTexture(queue.shift());
+    if (queue.length) setTimeout(pump, 20); else loadTimes.texturesUp = Math.round(performance.now());
+  })();
   loadTimes.modelsOn = Math.round(performance.now());
   return r;
 });
