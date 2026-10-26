@@ -261,6 +261,22 @@ Materials: `tools/matbuild.mjs` packs ambientCG zips into colour / normal / `_rh
 - **Hanging signs need one face per side**, each reading left to right from its side, 2.4 cm apart; two coplanar double-sided quads showed mirrored text.
 - **Decal quads on roads take the terrain height per corner**; one height for the whole quad buried half of it on slopes.
 
+## Combat and weather effects (graphics prompt 2, Phase 4)
+
+`src/vfx.js` (`game.vfx`), all made in code. Three particle pools in their own scene, drawn by `Game.renderScene` after the world pass and AO, before the weapon: lit smoke (normal blend, a 4x4 noise atlas whose texels carry a normal; sun, sky/ground ambient and the two strongest nearby lights; sorted far to near), fire (premultiplied over-blend with a heat ramp, so stacked lumps keep their shape), sparks (additive streaks along their velocity, double-sided). Soft edges: after the world pass a half-res linear depth copy is made from the composer target's depth texture and the particles fade against it (only with post on). Chips/splinters/shards/clods (`debris`) and brass (`casings`, bounce + `audio.spatial.casing`) are instanced meshes in the main scene, lit normally. One `blast` point light (desktop) for explosions. Shockwaves and barrel heat haze are UV distortions in post's EffectsShader (`post.setDistort`).
+
+API: `impact(p, n, kind)` (brick, plaster, concrete, asphalt, dirt, grass, wood, metal, glass, water), `kit(p, n)` (soldier hits: dust and kit fragments, never blood), `muzzle`, `casing`, `explosion(p, scale)`, `flashbang`, `addFire`, `addSmokeScreen`, `exhaust`, `wheelDust`, `drip`. `Game.impactKind(hit, kind)` classifies a hit (facade layer of the building, ground kind under the round). Decals gained `dirt` and `scorch` kinds and a size argument; pools of 160 so marks stay. Windows crack on the first round and shatter on the second (townlife). Rain wets walls and roofs (townmat `wetAll`) and the props (`models.setWet`).
+
+    const v = await import('/tools/vfxshots.js'); await v.capture(__rs, 'vfx')   // slow-motion sequences of every effect -> shots/ (needs tools/shotsrv.js and ?capture)
+    const f = await import('/tools/firefight.js'); await f.run(__rs, { vfx: true })   // ten soldiers, auto fire, a frag every 2 s; frame times
+
+- **A quad whose corners follow the velocity can wind either way.** The spark streaks were back-face culled until the material went double-sided.
+- **An InstancedMesh first drawn with zero instances keeps an empty bounding sphere** and is culled for good: the shattered-window overlay never showed. Pools that start empty set `frustumCulled = false`.
+- **Additive fireball lumps add up to white**; premultiplied over-blending keeps the ball's structure.
+- **`castStatic` did not pass on its `ground` flag**, so ground hits looked like walls.
+- **Effect materials are hidden while empty and `renderer.compile` skips them**: `vfx.warm()` makes them visible for the load-time compile.
+- **Timing in a hidden browser pane is worthless**: gl.finish waits behind a background GPU process (a 15 s frame) and timers crawl. Only measure with the window in view.
+
 ## Mobile and Android
 
 Touch: contextual USE (`#btn-interact`, label = first word of the prompt, red LOCKED when keycard too low), BREATH when scoped, inspect, turn-sideways card in portrait, fullscreen + landscape lock from the start tap. `tools/mobiletest.js` (11 checks) includes a press-and-release with no frame between.

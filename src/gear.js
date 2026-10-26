@@ -330,7 +330,10 @@ export class Gear {
       if (n.t >= n.fuse) {
         if (n.kind === 'frag') this._explode(n.p);
         else if (n.kind === 'flash') this._flash(n.p);
-        else this.smokes.push({ p: n.p.clone(), t: 0, r: 0 });
+        else {
+          this.smokes.push({ p: n.p.clone(), t: 0, r: 0 });
+          if (this.game.vfx) this.game.vfx.addSmokeScreen(n.p.x, n.p.y, n.p.z, CFG.gear.smokeRadius, CFG.gear.smokeTime);
+        }
         this.scene.remove(n.mesh);
         this.nades.splice(i, 1);
       }
@@ -339,9 +342,10 @@ export class Gear {
 
   _explode(p) {
     const g = this.game, G2 = CFG.gear;
-    g.fx.explode(p, 0xffb060);
     const life = g.life;
-    if (life) {
+    if (g.vfx) g.vfx.explosion(p, 1);
+    else g.fx.explode(p, 0xffb060);
+    if (life && !g.vfx) {
       for (let i = 0; i < 26; i++) life.pools.glow.spawn(p.x, p.y + 0.2, p.z, (Math.random() - 0.5) * 10, Math.random() * 7, (Math.random() - 0.5) * 10, 0.5, 0.9, 0.25, 3, 1.5, 0.5, 1, 7, 0.4);
       for (let i = 0; i < 12; i++) life.pools.smoke.spawn(p.x, p.y + 0.5, p.z, (Math.random() - 0.5) * 4, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 4, 3 + Math.random() * 2, 1.2, 4.5, 0.2, 0.19, 0.17, 0.6, 0, 0.6);
     }
@@ -349,7 +353,7 @@ export class Gear {
     const camD = g.camera.position.distanceTo(p);
     audio.spatial.explosion(p.x, p.y, p.z);
     if (g.screen && camD < 14) g.screen.suppress(0.6 * (1 - camD / 14), audio.toListener(p.x, p.y, p.z));
-    g.fx.addShake(Math.max(0, 0.07 * (1 - camD / 30)));
+    if (!g.vfx) g.fx.addShake(Math.max(0, 0.07 * (1 - camD / 30)));
     // damage, shielded by solid cover
     const R = G2.fragRadius;
     // canSee aims 1.3 m above the feet it is given; ask about the chest.
@@ -375,7 +379,8 @@ export class Gear {
   _flash(p) {
     const g = this.game, G2 = CFG.gear;
     audio.spatial.bang(p.x, p.y, p.z);
-    g.fx.explode(p, 0xffffff);
+    if (g.vfx) g.vfx.flashbang(p);
+    else g.fx.explode(p, 0xffffff);
     const cam = g.camera.position;
     const d = cam.distanceTo(p);
     const ps = g.player.state;
@@ -409,7 +414,7 @@ export class Gear {
       const grow = Math.min(1, s.t / 2.2), fade = Math.min(1, (G2.smokeTime - s.t) / 3);
       s.r = G2.smokeRadius * grow * Math.max(0, fade);
       // a wall, not a wisp: it hides men, so it has to look like it would
-      if (g.life && s.t < G2.smokeTime - 2) {
+      if (g.life && !g.vfx && s.t < G2.smokeTime - 2) {
         s.acc = (s.acc || 0) + dt * 22;
         for (; s.acc >= 1; s.acc--) {
           const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * Math.max(1, s.r) * 0.8;

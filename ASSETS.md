@@ -215,3 +215,9 @@ three.js: meshopt decoder (MIT) and the Basis KTX2 transcoder (Apache-2.0,
 
 Made in code, not downloaded: the cars (no CC0 car models that look real),
 the truck, posters and graffiti. No bikes were added.
+
+## Phase 4: combat and weather effects
+
+No files were downloaded. Every effect texture (smoke puffs with normals,
+flame and flash shapes, decal marks) and every effect mesh (chips, casings)
+is generated in code at start-up (`src/vfx.js`, `src/decals.js`).

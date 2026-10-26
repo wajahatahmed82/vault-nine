@@ -130,6 +130,25 @@ function farProps() {
 // materials sky.js lights with the street lamps
 export function lampGlow() { return lib.lampGlow || []; }
 
+// Rain on the props, plants and cars: rougher things go glossier and darker.
+// The dry values are kept on the material the first time.
+let wetNow = -1;
+export function setWet(w) {
+  if (w === wetNow) return;
+  wetNow = w;
+  const seen = new Set();
+  for (const k of Object.values(lib.kinds)) {
+    for (const part of k.parts) {
+      const m = part.material;
+      if (!m || seen.has(m) || !m.isMeshStandardMaterial) continue;
+      seen.add(m);
+      const d = m.userData.dry || (m.userData.dry = { r: m.roughness, c: m.color.clone() });
+      m.roughness = d.r * (1 - 0.5 * w) + 0.06 * w;
+      m.color.copy(d.c).multiplyScalar(1 - 0.2 * w);
+    }
+  }
+}
+
 let loader = null;
 function gltfLoader(renderer) {
   if (loader) return loader;
@@ -213,6 +232,7 @@ export function loadModels(renderer) {
       if (scene) { const k = makeKind(spec, scene); if (k) lib.kinds[name] = k; }
     }
     farProps();
+    if (wetNow > 0) { const w = wetNow; wetNow = -1; setWet(w); }   // raining already
     lib.ready = Object.keys(lib.kinds).length > 0;
     lib.failed = !lib.ready;
     return lib.ready;

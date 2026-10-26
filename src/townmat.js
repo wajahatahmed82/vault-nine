@@ -66,6 +66,8 @@ const POM_SRC = `
 
 export function arrayMaterial(arr, opts = {}) {
   const wetLayer = opts.wetLayer ?? -1;
+  // walls and roofs in the rain: darker, glossier, in vertical runs
+  const wetAll = wetLayer < 0 ? 1 : 0;
   const mossLayer = opts.mossLayer ?? -1;
   const depths = new Float32Array(16);
   if (opts.depths) depths.set(opts.depths.slice(0, 16));
@@ -116,6 +118,14 @@ export function arrayMaterial(arr, opts = {}) {
           roughnessFactor = mix( roughnessFactor, mix( mix( 0.45, 0.25, road ), 0.03, pud ), uWet );
           diffuseColor.rgb *= mix( 1.0, mix( mix( 0.8, 0.6, road ), 0.35, pud ), uWet );
         }
+        #endif
+        #if ${wetAll}
+        if ( uWet > 0.0 ) {
+          float runs = fract( sin( floor( vMapUv.x * 7.0 ) * 91.7 ) * 43758.5453 );
+          float w = uWet * ( 0.6 + 0.4 * runs );
+          roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.4 + 0.07, w );
+          diffuseColor.rgb *= mix( 1.0, 0.78, w );
+        }
         #endif`)
       .replace('texture2D( normalMap, vNormalMapUv )', 'texture( tNR, vec3( pUv, vLayer ) )')
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
@@ -124,7 +134,7 @@ export function arrayMaterial(arr, opts = {}) {
         reflectedLight.indirectSpecular *= cao;
         reflectedLight.directDiffuse *= mix( 0.75, 1.0, cao );`);
   };
-  m.customProgramCacheKey = () => 'townArray' + wetLayer + '|' + mossLayer + '|' + pom;
+  m.customProgramCacheKey = () => 'townArray' + wetLayer + '|' + mossLayer + '|' + pom + '|' + wetAll;
   return m;
 }
 

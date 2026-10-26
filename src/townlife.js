@@ -136,7 +136,9 @@ export function createLife(game, opts = {}) {
   // scratch objects reused every frame -- nothing allocates in update()
   const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), EU = new THREE.Euler();
   const ONE = new THREE.Vector3(1, 1, 1), SC = new THREE.Vector3();
-  const life = { t: 0, raining: false, broken: new Set(), alarms: [], fuel: null, birds: null };
+  const life = { t: 0, raining: false, broken: new Set(), cracked: new Set(), alarms: [], fuel: null, birds: null };
+  // the burning car on Main Street burns for real (vfx.js), all game long
+  if (game.vfx && sp.burningCar) game.vfx.addFire(sp.burningCar.x, sp.burningCar.y + 0.9, sp.burningCar.z, 1.0);
 
   // ---- rain ----
   const RN = opts.lowEffects ? 1500 : 3200;
@@ -350,6 +352,9 @@ export function createLife(game, opts = {}) {
   const holeMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1),
     new THREE.MeshBasicMaterial({ map: softTexture('hole'), transparent: true, alphaTest: 0.4, depthWrite: true, color: 0x0a0b0c }), HOLES);
   holeMesh.count = 0;
+  // its bounds were computed with no instances (an empty sphere) and every
+  // shattered window was culled: never cull it
+  holeMesh.frustumCulled = false;
   scene.add(holeMesh);
 
   // ------------------------------------------------------------ helpers --
@@ -359,20 +364,39 @@ export function createLife(game, opts = {}) {
 
   function burn(x, y, z, dt, big) {
     const fire = big ? 26 : 14, puffs = big ? 9 : 5;
+    if (Math.random() < 3 * dt && distTo(x, z) < 25) audio.townSfx.fireCrackle(Math.max(0, 1 - distTo(x, z) / 25));
+    if (game.vfx) return;   // vfx.js fire emitters (addFire) draw these
     if (Math.random() < fire * dt) glow.spawn(x + (Math.random() - 0.5) * 1.6, y, z + (Math.random() - 0.5) * 1.2, 0, 2.6, 0, 0.55, 0.7, 0.2, 2.6, 1.0, 0.3, 0.8);
     if (Math.random() < puffs * dt) smoke.spawn(x + (Math.random() - 0.5), y + 0.8, z + (Math.random() - 0.5), 0.5, 1.6, 0.2, 5.5, 0.9, 4.5, 0.12, 0.11, 0.1, 0.55, 0, 0.1);
-    if (Math.random() < 3 * dt && distTo(x, z) < 25) audio.townSfx.fireCrackle(Math.max(0, 1 - distTo(x, z) / 25));
   }
 
   function shatter(b, w, hitPoint) {
     const key = b.x.toFixed(1) + ',' + b.z.toFixed(1) + ',' + w.f + ',' + w.u.toFixed(1) + ',' + w.y.toFixed(1);
     if (life.broken.has(key)) return false;
+    const fn0 = { f: [0, 1], b: [0, -1], r: [1, 0], l: [-1, 0] }[w.f];
+    const c0 = Math.cos(b.rot), s0 = Math.sin(b.rot);
+    const wn = { x: fn0[0] * c0 + fn0[1] * s0, y: 0, z: -fn0[0] * s0 + fn0[1] * c0 };
+    // the first round stars the pane; the next one brings it down
+    if (game.vfx && !life.cracked.has(key)) {
+      life.cracked.add(key);
+      if (game.decals) game.decals.add(hitPoint, new THREE.Vector3(wn.x, 0, wn.z), 'glass', 0.5);
+      game.vfx.impact(hitPoint, wn, 'glass');
+      audio.spatial.impact(hitPoint.x, hitPoint.y, hitPoint.z, 'glass');
+      return true;
+    }
     life.broken.add(key);
     // glass shards falling out of the frame
-    for (let i = 0; i < 16; i++) {
-      smoke.spawn(hitPoint.x, hitPoint.y + (Math.random() - 0.3) * w.h * 0.5, hitPoint.z,
-        (Math.random() - 0.5) * 2.2, Math.random() * 1.5, (Math.random() - 0.5) * 2.2,
-        0.9 + Math.random() * 0.5, 0.06, 0.04, 0.75, 0.85, 0.9, 0.9, 9.8, 0.2);
+    if (game.vfx) {
+      for (let i = 0; i < 4; i++) {
+        tmp.set(hitPoint.x, hitPoint.y + (Math.random() - 0.4) * w.h * 0.6, hitPoint.z);
+        game.vfx.impact(tmp, wn, 'glass');
+      }
+    } else {
+      for (let i = 0; i < 16; i++) {
+        smoke.spawn(hitPoint.x, hitPoint.y + (Math.random() - 0.3) * w.h * 0.5, hitPoint.z,
+          (Math.random() - 0.5) * 2.2, Math.random() * 1.5, (Math.random() - 0.5) * 2.2,
+          0.9 + Math.random() * 0.5, 0.06, 0.04, 0.75, 0.85, 0.9, 0.9, 9.8, 0.2);
+      }
     }
     if (holeMesh.count < HOLES) {
       const m4 = new THREE.Matrix4();
@@ -414,10 +438,15 @@ export function createLife(game, opts = {}) {
     F.dead = true;
     F.burning = 45;
     const p = F.pos;
-    game.fx.explode(p, 0xffa040);
-    game.fx.addShake(0.06);
-    for (let i = 0; i < 40; i++) glow.spawn(p.x, p.y, p.z, (Math.random() - 0.5) * 12, Math.random() * 9, (Math.random() - 0.5) * 12, 0.7, 1.2, 0.3, 3, 1.4, 0.4, 1, 6, 0.5);
-    for (let i = 0; i < 18; i++) smoke.spawn(p.x, p.y + 1, p.z, (Math.random() - 0.5) * 5, 2 + Math.random() * 4, (Math.random() - 0.5) * 5, 4 + Math.random() * 3, 1.5, 6, 0.1, 0.09, 0.08, 0.7, 0, 0.6);
+    if (game.vfx) {
+      game.vfx.explosion(p, 1.4);
+      F.fire = game.vfx.addFire(p.x, p.y + 0.4, p.z, 1.3);
+    } else {
+      game.fx.explode(p, 0xffa040);
+      game.fx.addShake(0.06);
+      for (let i = 0; i < 40; i++) glow.spawn(p.x, p.y, p.z, (Math.random() - 0.5) * 12, Math.random() * 9, (Math.random() - 0.5) * 12, 0.7, 1.2, 0.3, 3, 1.4, 0.4, 1, 6, 0.5);
+      for (let i = 0; i < 18; i++) smoke.spawn(p.x, p.y + 1, p.z, (Math.random() - 0.5) * 5, 2 + Math.random() * 4, (Math.random() - 0.5) * 5, 4 + Math.random() * 3, 1.5, 6, 0.1, 0.09, 0.08, 0.7, 0, 0.6);
+    }
     audio.spatial.explosion(p.x, p.y, p.z);
     F.mesh.material.color.setRGB(0.12, 0.11, 0.1);
     F.mesh.rotation.z = 0.08; F.mesh.position.y += 0.05;
@@ -570,6 +599,27 @@ export function createLife(game, opts = {}) {
     if (life.fuel && life.fuel.burning > 0) {
       life.fuel.burning -= dt;
       burn(life.fuel.pos.x, life.fuel.pos.y, life.fuel.pos.z, dt, true);
+      if (life.fuel.burning <= 0 && life.fuel.fire) life.fuel.fire.on = false;
+    }
+    // rain running off the eaves of the buildings round the camera
+    if (life.raining && game.vfx) {
+      life.dripT = (life.dripT || 0) - dt;
+      if (life.dripT <= 0) {
+        life.dripT = 1;
+        life.eaves = town.buildings.filter((b) => !b.enter && Math.hypot(b.x - cp.x, b.z - cp.z) < 32 + Math.max(b.w, b.d) / 2);
+      }
+      const E = life.eaves;
+      if (E && E.length) {
+        life.dripAcc = (life.dripAcc || 0) + dt * 40;
+        for (; life.dripAcc >= 1; life.dripAcc--) {
+          const b = E[(Math.random() * E.length) | 0];
+          const lz = (Math.random() < 0.5 ? -1 : 1) * (b.d / 2 + 0.3), lx = (Math.random() - 0.5) * (b.w - 0.4);
+          const cs = Math.cos(b.rot), sn = Math.sin(b.rot);
+          const x = b.x + lx * cs + lz * sn, z = b.z - lx * sn + lz * cs;
+          if (Math.hypot(x - cp.x, z - cp.z) > 30) continue;
+          game.vfx.drip(x, b.base + b.H - 0.08, z, town.surfaceH(x, z));
+        }
+      }
     }
 
     // sparks from the downed line

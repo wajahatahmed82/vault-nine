@@ -45,21 +45,40 @@ const EffectsShader = {
     tDiffuse: { value: null },
     uSupp: { value: 0 }, uDir: { value: new THREE.Vector2() }, uHurt: { value: 0 },
     uChroma: { value: 0 }, uDesat: { value: 0 }, uFlash: { value: 0 },
+    // vfx.js: up to two blast shockwaves (uv centre, radius, strength) and
+    // heat haze over a hot barrel (uv centre, radius, strength)
+    uShock0: { value: new THREE.Vector4() }, uShock1: { value: new THREE.Vector4() }, uHaze: { value: new THREE.Vector4() },
+    uAspect: { value: 1 }, uTime: { value: 0 },
   },
   vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }',
   fragmentShader: `uniform sampler2D tDiffuse; uniform float uSupp; uniform vec2 uDir; uniform float uHurt;
     uniform float uChroma; uniform float uDesat; uniform float uFlash;
+    uniform vec4 uShock0; uniform vec4 uShock1; uniform vec4 uHaze; uniform float uAspect; uniform float uTime;
     varying vec2 vUv;
+    vec2 shock( vec2 uv, vec4 s ) {
+      if ( s.w < 0.001 ) return vec2( 0.0 );
+      vec2 d = ( uv - s.xy ) * vec2( uAspect, 1.0 );
+      float r = length( d );
+      float k = s.w * exp( - pow( ( r - s.z ) / max( 0.012, s.z * 0.18 ), 2.0 ) );
+      return d / max( r, 1e-4 ) * k * 0.022 / vec2( uAspect, 1.0 );
+    }
     void main() {
-      vec2 c = vUv - 0.5;
+      vec2 uv = vUv + shock( vUv, uShock0 ) + shock( vUv, uShock1 );
+      if ( uHaze.w > 0.001 ) {
+        // shimmer rising off the barrel
+        vec2 d = ( vUv - uHaze.xy ) * vec2( uAspect, 1.0 );
+        float f = uHaze.w * smoothstep( uHaze.z, 0.0, length( d - vec2( 0.0, uHaze.z * 0.5 ) ) );
+        uv += vec2( sin( vUv.y * 140.0 - uTime * 11.0 ), cos( vUv.x * 110.0 - uTime * 8.0 ) ) * 0.0022 * f;
+      }
+      vec2 c = uv - 0.5;
       float r = length( c );
       float ca = uChroma * 0.018 * r;
-      vec3 col = vec3( texture2D( tDiffuse, vUv + c * ca ).r, texture2D( tDiffuse, vUv ).g, texture2D( tDiffuse, vUv - c * ca ).b );
+      vec3 col = vec3( texture2D( tDiffuse, uv + c * ca ).r, texture2D( tDiffuse, uv ).g, texture2D( tDiffuse, uv - c * ca ).b );
       if ( uSupp > 0.01 ) {
         // a radial smear that leaves the centre sharp
         float k = uSupp * 0.05 * smoothstep( 0.12, 0.6, r );
         vec3 acc = col;
-        for ( int i = 1; i < 6; i ++ ) acc += texture2D( tDiffuse, vUv - c * k * float( i ) / 5.0 ).rgb;
+        for ( int i = 1; i < 6; i ++ ) acc += texture2D( tDiffuse, uv - c * k * float( i ) / 5.0 ).rgb;
         col = acc / 6.0;
       }
       float side = clamp( dot( c / max( r, 1e-4 ), uDir ), 0.0, 1.0 );
@@ -272,14 +291,27 @@ export function createPost(renderer, game) {
       return true;
     },
     setEffects(o, dir) {
-      if (!o) { effects.enabled = false; return; }
-      const on = o.supp > 0.005 || o.hurt > 0.005 || o.chroma > 0.005 || o.desat > 0.005 || o.flash > 0.005;
-      effects.enabled = on;
-      if (!on) return;
       const u = effects.uniforms;
+      if (!o) { effects.enabled = this.distortOn; return; }
+      const on = o.supp > 0.005 || o.hurt > 0.005 || o.chroma > 0.005 || o.desat > 0.005 || o.flash > 0.005;
+      effects.enabled = on || this.distortOn;
+      if (!on) { u.uSupp.value = u.uHurt.value = u.uChroma.value = u.uDesat.value = u.uFlash.value = 0; return; }
       u.uSupp.value = o.supp; u.uHurt.value = o.hurt; u.uChroma.value = o.chroma;
       u.uDesat.value = o.desat; u.uFlash.value = o.flash;
       u.uDir.value.set(dir.x, dir.y);
+    },
+    distortOn: false,
+    // shocks: [[u, v, radius, strength], ...] (up to 2); haze: [u, v, radius, strength] or null
+    setDistort(shocks, haze, time) {
+      const u = effects.uniforms;
+      const s0 = shocks[0], s1 = shocks[1];
+      u.uShock0.value.set(...(s0 || [0, 0, 0, 0]));
+      u.uShock1.value.set(...(s1 || [0, 0, 0, 0]));
+      u.uHaze.value.set(...(haze || [0, 0, 0, 0]));
+      u.uAspect.value = size.x / Math.max(1, size.y);
+      u.uTime.value = time;
+      this.distortOn = this.mode !== 'off' && (!!s0 || !!(haze && haze[3] > 0.001));
+      if (this.distortOn) effects.enabled = true;
     },
     setMode(m) {
       this.mode = m;

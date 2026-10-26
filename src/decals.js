@@ -7,10 +7,12 @@ import * as THREE from 'three';
 // masonry chips out pale around a dark core, metal scuffs bright, wood
 // splinters, glass cracks.
 
-const POOL = 96;   // two full 30-round sprays plus change, per surface
+// Marks stay: a pool per surface, the oldest recycled only once it is full.
+const POOL = 160;
+const SCORCH_POOL = 24;
 
 function makeTexture(kind) {
-  const S = 64;
+  const S = kind === 'scorch' ? 128 : 64;
   const c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d');
@@ -18,7 +20,28 @@ function makeTexture(kind) {
   const cx = S / 2, cy = S / 2;
   const rnd = (() => { let s = kind.length * 97 + 13; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
 
-  if (kind === 'glass') {
+  if (kind === 'scorch') {
+    // a blast mark: soot, darkest at the middle, ragged at the edge, streaks out
+    const S2 = S / 2;
+    for (let i = 0; i < 40; i++) {
+      const a = rnd() * Math.PI * 2, r = S2 * (0.35 + rnd() * 0.6);
+      g.strokeStyle = `rgba(14,12,10,${0.15 + rnd() * 0.3})`; g.lineWidth = 1 + rnd() * 2.5;
+      g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); g.stroke();
+    }
+    const soot = g.createRadialGradient(cx, cy, 2, cx, cy, S2 * 0.8);
+    soot.addColorStop(0, 'rgba(8,7,6,0.95)'); soot.addColorStop(0.55, 'rgba(18,15,12,0.7)'); soot.addColorStop(1, 'rgba(18,15,12,0)');
+    g.fillStyle = soot; g.beginPath(); g.arc(cx, cy, S2, 0, Math.PI * 2); g.fill();
+  } else if (kind === 'dirt') {
+    // a scuffed pit with thrown soil round it
+    for (let i = 0; i < 60; i++) {
+      const a = rnd() * Math.PI * 2, r = 4 + rnd() * 18, sz = 1 + rnd() * 3;
+      g.fillStyle = `rgba(52,38,24,${0.3 + rnd() * 0.5})`;
+      g.fillRect(cx + Math.cos(a) * r, cy + Math.sin(a) * r, sz, sz);
+    }
+    const pit = g.createRadialGradient(cx, cy, 1, cx, cy, 11);
+    pit.addColorStop(0, 'rgba(20,14,8,0.95)'); pit.addColorStop(1, 'rgba(30,22,14,0)');
+    g.fillStyle = pit; g.beginPath(); g.arc(cx, cy, 11, 0, Math.PI * 2); g.fill();
+  } else if (kind === 'glass') {
     g.strokeStyle = 'rgba(235,240,240,0.85)';
     g.lineWidth = 1.2;
     for (let i = 0; i < 9; i++) {
@@ -62,7 +85,7 @@ export class Decals {
     this.scene = scene;
     this.sets = {};
     const geo = new THREE.PlaneGeometry(1, 1);
-    for (const kind of ['masonry', 'metal', 'wood', 'glass']) {
+    for (const kind of ['masonry', 'metal', 'wood', 'glass', 'dirt', 'scorch']) {
       const mat = new THREE.MeshStandardMaterial({
         map: makeTexture(kind), transparent: true, depthWrite: false,
         roughness: 0.95, metalness: 0,
@@ -70,12 +93,13 @@ export class Decals {
         // wall it sits on, without floating visibly off it.
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
       });
-      const mesh = new THREE.InstancedMesh(geo, mat, POOL);
+      const pool = kind === 'scorch' ? SCORCH_POOL : POOL;
+      const mesh = new THREE.InstancedMesh(geo, mat, pool);
       mesh.count = 0;
       mesh.frustumCulled = false;
       mesh.renderOrder = 2;
       scene.add(mesh);
-      this.sets[kind] = { mesh, next: 0, used: 0 };
+      this.sets[kind] = { mesh, next: 0, used: 0, pool };
     }
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
@@ -85,9 +109,9 @@ export class Decals {
     this._z = new THREE.Vector3(0, 0, 1);
   }
 
-  add(point, normal, kind) {
+  add(point, normal, kind, sizeIn) {
     const set = this.sets[kind] || this.sets.masonry;
-    const size = kind === 'glass' ? 0.22 : kind === 'metal' ? 0.10 : 0.13;
+    const size = sizeIn || (kind === 'glass' ? 0.22 : kind === 'metal' ? 0.10 : kind === 'dirt' ? 0.3 : 0.13);
     this._q.setFromUnitVectors(this._z, normal);
     this._q2.setFromAxisAngle(this._z, Math.random() * Math.PI * 2);
     this._q.multiply(this._q2);
@@ -96,8 +120,8 @@ export class Decals {
     this._s.set(s, s, s);
     this._m.compose(this._p, this._q, this._s);
     set.mesh.setMatrixAt(set.next, this._m);
-    set.next = (set.next + 1) % POOL;
-    set.used = Math.min(POOL, set.used + 1);
+    set.next = (set.next + 1) % set.pool;
+    set.used = Math.min(set.pool, set.used + 1);
     set.mesh.count = set.used;
     set.mesh.instanceMatrix.needsUpdate = true;
   }

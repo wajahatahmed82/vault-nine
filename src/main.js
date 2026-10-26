@@ -257,6 +257,7 @@ const models = loadModels(renderer).then((ok) => {
   if (!ok) return game.town.modelsAttached;
   const r = game.town.attachModels();
   renderer.compile(game.scene, game.camera);
+  if (game.vfx) game.vfx.warm(renderer, game.camera);
   // upload the model textures ahead of use, a few per frame (all at once
   // froze the menu for 5 s): otherwise each kind's first appearance stalls a
   // frame while its KTX2 maps go to the GPU

@@ -199,11 +199,34 @@ export class Vehicle {
       }
     }
     this._pose(dt);
+    this._effects(dt, inp);
     if (this.beam) {
       const n = this.game.atmos ? this.game.atmos.night : 0;
       this.beam.intensity = this.active ? 90 * Math.max(n, this.driving ? 0.15 : 0) : 0;
     }
     if (this.driving) audio.engine.set(Math.abs(this.speed) / MAX_FWD, Math.abs(inp.throttle || 0));
+  }
+
+  // exhaust at the pipe; dust behind the rear wheels (spray in the rain)
+  _effects(dt, inp) {
+    const g = this.game, V = g.vfx;
+    if (!V || !this.active) return;
+    if (g.camera.position.distanceToSquared(this.mesh.position) > 80 * 80) return;
+    const s = Math.sin(this.heading), c = Math.cos(this.heading);
+    const fx = -s, fz = -c, rx = c, rz = -s;           // forward, right
+    const k = this.driving ? Math.min(1, Math.abs(inp.throttle || 0) * 0.7 + Math.abs(this.speed) / MAX_FWD * 0.3) : 0.05;
+    const v = this._ev || (this._ev = new THREE.Vector3()), d = this._ed || (this._ed = new THREE.Vector3(-fx, 0, -fz));
+    d.set(-fx, 0, -fz);
+    v.set(this.x - fx * 2.45 - rx * 0.62, this.y + 0.38, this.z - fz * 2.45 - rz * 0.62);
+    if (this.driving || Math.random() < 0.3) V.exhaust(v, d, k);
+    const sp = Math.abs(this.speed);
+    if (sp > 2.5) {
+      const wet = g.atmos && g.atmos.state && g.atmos.state.weather === 'rain';
+      for (const e of [-1, 1]) {
+        v.set(this.x - fx * 1.5 + rx * 0.85 * e, this.y, this.z - fz * 1.5 + rz * 0.85 * e);
+        V.wheelDust(v, sp, g.town ? g.town.groundKind(v.x, v.z) : 'asphalt', wet);
+      }
+    }
   }
 
   _pose(dt) {

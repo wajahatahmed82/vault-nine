@@ -3,7 +3,7 @@ import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { SHARED } from './townmat.js';
 import { load as loadAsset } from './assets.js';
 import { TOUCH_ONLY } from './input.js';
-import { lampGlow } from './models.js';
+import { lampGlow, setWet } from './models.js';
 
 // Atmosphere: sky, time of day, height fog, street lighting.
 //
@@ -402,6 +402,7 @@ export function createAtmosphere(game, renderer, opts = {}) {
   function applyWeather() {
     const rain = state.weather === 'rain';
     SHARED.uWet.value = rain ? 1 : 0;
+    setWet(rain ? 1 : 0);
     if (SHARED.uWind) SHARED.uWind.value = rain ? 2.2 : 1;
     if (scene.fog) {
       const T = state.T;

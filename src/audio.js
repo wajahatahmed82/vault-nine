@@ -434,6 +434,15 @@ export const spatial = {
     }, { ref: 8, roll: 0.5, life: 1.6, far: 400 });
   },
   bounce(x, y, z, vol = 1) { at(x, y, z, 'bounce', () => sfx.bounce(vol), { ref: 2, roll: 1, life: 0.4, far: 40 }); },
+  // a brass case landing: two bright partials and a tick, a little different each time
+  casing(x, y, z, vol = 1) {
+    at(x, y, z, 'casing', () => {
+      const f = 2500 + Math.random() * 1100;
+      tone({ type: 'sine', f0: f, f1: f * 0.985, dur: 0.11, vol: 0.05 * vol });
+      tone({ type: 'sine', f0: f * 1.62, f1: f * 1.6, dur: 0.07, vol: 0.03 * vol });
+      noise({ dur: 0.012, vol: 0.035 * vol, type: 'highpass', f0: 5200, q: 0.7 });
+    }, { ref: 1.2, roll: 1.3, life: 0.35, far: 20 });
+  },
   glass(x, y, z) { at(x, y, z, 'glass', () => townSfx.glassShatter(1), { ref: 5, roll: 0.8, life: 1 }); },
   alarm(x, y, z) { at(x, y, z, 'alarm', () => townSfx.carAlarm(1), { ref: 6, roll: 0.7, life: 8.5, far: 200 }); },
 };

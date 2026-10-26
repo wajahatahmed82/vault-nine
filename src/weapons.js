@@ -31,6 +31,8 @@ function flashTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+const UP3 = new THREE.Vector3(0, 1, 0);
+
 export class WeaponSystem {
   constructor(camera, audio, mats, progression) {
     this.camera = camera;
@@ -165,7 +167,7 @@ export class WeaponSystem {
 
     // Short range and a low cap: at range 10 / intensity 8, automatic fire
     // strobed the whole room. (Change carried over from the published artifact.)
-    this.flashLight = new THREE.PointLight(0xffbb66, 0, 6, 2);
+    this.flashLight = new THREE.PointLight(0xffbb66, 0, 8, 2);
     this.recoilGroup.add(this.flashLight);
   }
 
@@ -523,7 +525,7 @@ export class WeaponSystem {
     const fs = (0.8 + Math.random() * 0.55) * (s.pellets > 1 ? 1.5 : 1);
     this.flash.scale.set(fs, fs, fs);
     // accumulate toward a cap rather than slamming to full every round
-    if (!this.suppressed) this.flashLight.intensity = Math.min(2.2, this.flashLight.intensity + 1.5);
+    if (!this.suppressed) this.flashLight.intensity = Math.min(3.2, this.flashLight.intensity + 2.0);
 
     this._ejectShell(scene);
     this.audio?.shot(this.current, this.suppressed);
@@ -551,6 +553,16 @@ export class WeaponSystem {
   }
 
   _ejectShell(scene) {
+    if (this.vfx) {
+      // brass that bounces, clinks and lies on the floor a while (vfx.js)
+      const p = this.model.port.getWorldPosition(this._sp || (this._sp = new THREE.Vector3()));
+      const fwd = this.camera.getWorldDirection(this._sf || (this._sf = new THREE.Vector3()));
+      const right = (this._sr || (this._sr = new THREE.Vector3())).crossVectors(fwd, UP3).normalize();
+      const v = (this._sv || (this._sv = new THREE.Vector3())).copy(right).multiplyScalar(1.9 + Math.random() * 0.8);
+      v.y += 1.5 + Math.random() * 0.7; v.addScaledVector(fwd, 0.3);
+      this.vfx.casing(p, v, this.spec.pellets > 1 ? 1.4 : this.current === 'sniper' ? 1.3 : this.current === 'pistol' ? 0.6 : 1);
+      return;
+    }
     if (this.shells.length > 16) scene.remove(this.shells.shift().mesh);
     const m = new THREE.Mesh(this.shellGeo, this.shellMat);
     this.model.port.getWorldPosition(m.position);

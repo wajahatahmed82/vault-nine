@@ -7,6 +7,8 @@ import { WeaponSystem, VIEW_LAYER } from './weapons.js';
 import { Player } from './player.js';
 import { Robot, pickType, STATE as AI, GUN_CLASS } from './enemies.js';
 import { FX } from './fx.js';
+import { VFX } from './vfx.js';
+import { FACADE } from './texgen.js';
 import { rayBox } from './collide.js';
 import { buildNav } from './nav.js';
 import { Gear } from './gear.js';
@@ -25,6 +27,10 @@ export const CALLOUT_TEXT = {
   contact: 'Contact!', reloading: 'Reloading!', manDown: 'Man down!', grenade: 'Grenade!',
   flash: 'Flashbang out!', search: "Where'd he go?",
 };
+
+// facade layers whose bullet holes throw red brick chips
+const BRICK = new Set([FACADE.brickRed, FACADE.brickBuff, FACADE.brickOld, FACADE.brickWorks, FACADE.painted]);
+const UP = new THREE.Vector3(0, 1, 0);
 
 export class Game {
   constructor(renderer, input, progression) {
@@ -65,6 +71,8 @@ export class Game {
     // mid-air above the basement.
     this.weapons.floorAt = (x, z, hintY) => this.player.groundAt(x, z, (hintY === undefined ? 0 : hintY));
     this.fx = new FX(this.scene, this.camera);
+    this.vfx = new VFX(this);
+    this.weapons.vfx = this.vfx;
     this.gear = new Gear(this);
     this.vehicle = new Vehicle(this);
     // one shared light that jumps to the latest enemy muzzle flash nearby
@@ -141,6 +149,7 @@ export class Game {
     for (const r of this.robots) this.scene.remove(r.root);
     this.robots.length = 0;
     this.fx.clear();
+    if (this.vfx) this.vfx.clear();
     if (this.decals) this.decals.clear();
     this.player.reset();
     this.weapons.resetAll();
@@ -447,7 +456,7 @@ export class Game {
         this.surfaceH(point.x, point.z - e) - this.surfaceH(point.x, point.z + e)).normalize();
     } else normal.setComponent(best.axis, best.sign);
     const kind = best.kind === 'car' || best.kind === 'fuelcar' ? 'metal' : best.kind;
-    return { distance: best.t, point, normal, kind, col: best.col };
+    return { distance: best.t, point, normal, kind, col: best.col, ground: !!best.ground };
   }
 
   // Line of sight against the collider boxes rather than the render meshes.
@@ -529,8 +538,8 @@ export class Game {
       const res = robot.damage(dmg, ud.part);
       const n = new THREE.Vector3().subVectors(origin, hit.point).normalize();
       // dust and kit fragments, deliberately not blood
-      this.fx.sparkBurst(hit.point, n, ud.part === 'head' ? 8 : 5);
-      this.fx.puff(hit.point, 0.30, 0xd8cbb4);
+      if (this.vfx) this.vfx.kit(hit.point, n);
+      else { this.fx.sparkBurst(hit.point, n, ud.part === 'head' ? 8 : 5); this.fx.puff(hit.point, 0.30, 0xd8cbb4); }
       if (res.killed) {
         this.registerKill(robot, res.headshot, hit.point.clone());
         // A man going down is loud. Nearby soldiers come to look; the ones
@@ -558,8 +567,14 @@ export class Game {
       n.transformDirection(hit.object.matrixWorld);
       kind = this.surface.get(hit.object.material) || 'masonry';
     }
-    this.decals.add(hit.point, n, kind);
-    if (kind === 'metal') {
+    const fine = this.impactKind(hit, kind), th = hit.townHit;
+    this.decals.add(hit.point, n, fine === 'grass' || fine === 'dirt' ? 'dirt' : fine === 'wood' ? 'wood' : fine === 'metal' ? 'metal' : kind === 'glass' ? 'glass' : 'masonry');
+    if (this.vfx) {
+      this.vfx.impact(hit.point, n, fine);
+      // rain on the ground: the round throws up water too
+      const A = this.atmos && this.atmos.state;
+      if (A && A.weather === 'rain' && th && th.ground && fine !== 'grass') this.vfx.impact(hit.point, n, 'water');
+    } else if (kind === 'metal') {
       this.fx.sparkBurst(hit.point, n, 7);
       this.fx.puff(hit.point, 0.18, 0x9a958c);
     } else if (kind === 'wood') {
@@ -572,6 +587,22 @@ export class Game {
     }
     audio.spatial.impact(hit.point.x, hit.point.y, hit.point.z, kind);
     return { robot: false };
+  }
+
+  // What a hit surface is made of, finer than the sound needs: brick, render,
+  // stone and concrete, timber cladding, metal, glass, the ground under it.
+  impactKind(hit, kind) {
+    let fine = kind === 'car' || kind === 'fuelcar' ? 'metal' : kind;
+    const th = hit.townHit;
+    if (th && th.ground) {
+      const gk = this.town ? this.town.groundKind(hit.point.x, hit.point.z) : 'asphalt';
+      fine = gk === 'grass' ? 'grass' : gk === 'gravel' ? 'dirt' : gk === 'asphalt' ? 'asphalt' : 'concrete';
+    } else if (kind === 'masonry') {
+      const b = th && th.col && th.col.ref;
+      const m = b && b.mat;
+      fine = m === undefined ? 'concrete' : BRICK.has(m) ? 'brick' : m === FACADE.render ? 'plaster' : m === FACADE.cladding ? 'wood' : 'concrete';
+    }
+    return fine;
   }
 
   tryFire() {
@@ -597,8 +628,11 @@ export class Game {
     // readable without turning a spray into a laser show.
     const tracerShot = !W.spec.auto || W.shotsFired % 3 === 1;
     let pelletTracers = 0;
-    // a thin wisp off the muzzle
-    if (W.shotsFired % (W.spec.auto ? 2 : 1) === 0 && !W.suppressed) this.fx.puff(muzzle, 0.10, 0xb9b2a6);
+    // gun smoke off the muzzle, and heat into the barrel
+    if (this.vfx) {
+      if (W.shotsFired % (W.spec.auto ? 2 : 1) === 0) this.vfx.muzzle(muzzle, dirs[0], W.spec.pellets > 1 || W.current === 'sniper');
+      W.heat = Math.min(1.6, (W.heat || 0) + (W.spec.pellets > 1 ? 0.16 : 0.055));
+    } else if (W.shotsFired % (W.spec.auto ? 2 : 1) === 0 && !W.suppressed) this.fx.puff(muzzle, 0.10, 0xb9b2a6);
     let anyHit = false, anyKill = false, anyHead = false;
     let hitPoint = null, dealt = 0;
     const dmg = W.damage;
@@ -663,7 +697,8 @@ export class Game {
     const give = Math.max(3, Math.round(w.magSize * 0.22));
     w.reserve[w.current] = Math.min(w.spec.reserve, w.reserve[w.current] + give);
 
-    this.fx.explode(point, 0xc9bda6);
+    if (this.vfx) { this.vfx.kit(point, UP); this.vfx.kit(point, UP); }
+    else this.fx.explode(point, 0xc9bda6);
     if (this.gear) this.gear.dropFrom(robot);
     const rp = robot.root.position;
     audio.spatial.death(rp.x, rp.y + 1, rp.z);
@@ -695,6 +730,19 @@ export class Game {
       if (this.enemyFlash && origin.distanceToSquared(camPos) < 2500) {
         this.enemyFlash.position.copy(origin);
         this.enemyFlash.intensity = 26;
+      }
+      // gun smoke, and brass thrown out to the right when he is close
+      const d2 = origin.distanceToSquared(camPos);
+      if (this.vfx && d2 < 3600) {
+        this.vfx.muzzle(origin, dir, false);
+        if (d2 < 225) {
+          const rx = -dir.z, rz = dir.x, l = Math.hypot(rx, rz) || 1;
+          const v = this._cv || (this._cv = new THREE.Vector3());
+          v.set(rx / l * (1.8 + Math.random()) - dir.x * 0.4, 1.4 + Math.random() * 0.8, rz / l * (1.8 + Math.random()) - dir.z * 0.4);
+          const cp = this._cp || (this._cp = new THREE.Vector3());
+          cp.copy(origin).addScaledVector(dir, -0.35);
+          this.vfx.casing(cp, v);
+        }
       }
       this.fireMarks.push({ x: origin.x, z: origin.z, t: this.elapsed });
       if (this.fireMarks.length > 24) this.fireMarks.shift();
@@ -778,6 +826,9 @@ export class Game {
 
   update(dt) {
     this.fx.update(dt);
+    if (this.vfx) this.vfx.update(dt);
+    // the barrel cools: haze over it while it is hot (render)
+    if (this.weapons) this.weapons.heat = Math.max(0, (this.weapons.heat || 0) - dt * 0.35);
     if (this.screen) this.screen.update(this.state === STATE.PLAY ? dt : 0, this.player.state.health, CFG.player.maxHealth);
 
     if (this.state !== STATE.PLAY) {
@@ -1182,6 +1233,16 @@ export class Game {
       const rain = A.weather === 'rain' ? 0.25 : 1;
       this.post.setRays(this.camera, A.sunDir || this.sunOffset, this.sun.color, (T.rays || 0) * rain);
     }
+    if (this.post && this.vfx) {
+      // blast shockwaves, and heat shimmer over a barrel run hot
+      const W = this.weapons, heat = W ? W.heat || 0 : 0;
+      let haze = null;
+      if (heat > 0.3 && W.model && W.model.muzzle && W.root.visible && !(W.scoped && W.ads > 0.6)) {
+        const v = W.model.muzzle.getWorldPosition(this._hz || (this._hz = new THREE.Vector3())).project(this.camera);
+        haze = [v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, 0.1, Math.min(1, (heat - 0.3) * 1.3)];
+      }
+      this.post.setDistort(this.vfx.distortion(this.camera), haze, performance.now() / 1000);
+    }
     if (this.post && this.post.mode !== 'off') this.post.render(1 / 60);
     else this.renderScene(null);
   }
@@ -1202,6 +1263,8 @@ export class Game {
     r.render(this.scene, cam);
     // ambient occlusion from this pass's depth, before the weapon clears it
     if (this.post) this.post.applyAO(target, cam);
+    // smoke, fire and sparks over the world, fading into it, under the gun
+    if (this.vfx) this.vfx.render(r, target, cam);
     cam.near = 0.03; cam.updateProjectionMatrix();
 
     // The weapon pass must not repaint the sky. An equirectangular
